@@ -12,7 +12,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/cespare/xxhash"
+	"github.com/cespare/xxhash/v2"
 	"github.com/go-kit/log"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/tsdb"
@@ -20,6 +20,7 @@ import (
 	"github.com/efficientgo/core/testutil"
 
 	"github.com/thanos-io/thanos/pkg/component"
+	"github.com/thanos-io/thanos/pkg/logutil"
 	"github.com/thanos-io/thanos/pkg/store/labelpb"
 	"github.com/thanos-io/thanos/pkg/store/storepb"
 	storetestutil "github.com/thanos-io/thanos/pkg/store/storepb/testutil"
@@ -28,40 +29,6 @@ import (
 )
 
 const skipMessage = "Chunk behavior changed due to https://github.com/prometheus/prometheus/pull/8723. Skip for now."
-
-func TestTSDBStore_Info(t *testing.T) {
-	defer custom.TolerantVerifyLeak(t)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	db, err := e2eutil.NewTSDB()
-	defer func() { testutil.Ok(t, db.Close()) }()
-	testutil.Ok(t, err)
-
-	tsdbStore := NewTSDBStore(nil, db, component.Rule, labels.FromStrings("region", "eu-west"))
-
-	resp, err := tsdbStore.Info(ctx, &storepb.InfoRequest{})
-	testutil.Ok(t, err)
-
-	testutil.Equals(t, []labelpb.ZLabel{{Name: "region", Value: "eu-west"}}, resp.Labels)
-	testutil.Equals(t, storepb.StoreType_RULE, resp.StoreType)
-	testutil.Equals(t, int64(math.MaxInt64), resp.MinTime)
-	testutil.Equals(t, int64(math.MaxInt64), resp.MaxTime)
-
-	app := db.Appender(context.Background())
-	_, err = app.Append(0, labels.FromStrings("a", "a"), 12, 0.1)
-	testutil.Ok(t, err)
-	testutil.Ok(t, app.Commit())
-
-	resp, err = tsdbStore.Info(ctx, &storepb.InfoRequest{})
-	testutil.Ok(t, err)
-
-	testutil.Equals(t, []labelpb.ZLabel{{Name: "region", Value: "eu-west"}}, resp.Labels)
-	testutil.Equals(t, storepb.StoreType_RULE, resp.StoreType)
-	testutil.Equals(t, int64(12), resp.MinTime)
-	testutil.Equals(t, int64(math.MaxInt64), resp.MaxTime)
-}
 
 func TestTSDBStore_Series_ChunkChecksum(t *testing.T) {
 	defer custom.TolerantVerifyLeak(t)
@@ -158,12 +125,12 @@ func TestTSDBStore_Series(t *testing.T) {
 			expectedSeries: []rawSeries{
 				{
 					lset:   labels.FromStrings("a", "1", "region", "eu-west"),
-					chunks: [][]sample{{{1, 1}, {2, 2}}},
+					chunks: [][]sample{{{1, 1}, {2, 2}, {3, 3}}},
 				},
 			},
 		},
 		{
-			title: "dont't match time range series",
+			title: "don't match time range series",
 			req: &storepb.SeriesRequest{
 				MinTime: 4,
 				MaxTime: 6,
@@ -185,7 +152,7 @@ func TestTSDBStore_Series(t *testing.T) {
 			expectedError: "rpc error: code = InvalidArgument desc = no matchers specified (excluding external labels)",
 		},
 		{
-			title: "dont't match labels",
+			title: "don't match labels",
 			req: &storepb.SeriesRequest{
 				MinTime: 1,
 				MaxTime: 3,
@@ -257,7 +224,7 @@ func TestTSDBStore_SeriesAccessWithDelegateClosing(t *testing.T) {
 		Random:           random,
 		SkipChunks:       true,
 	})
-	_ = createBlockFromHead(t, tmpDir, head)
+	_ = storetestutil.CreateBlockFromHead(t, tmpDir, head)
 	testutil.Ok(t, head.Close())
 
 	head, _ = storetestutil.CreateHeadWithSeries(t, 1, storetestutil.HeadGenOptions{
@@ -270,7 +237,7 @@ func TestTSDBStore_SeriesAccessWithDelegateClosing(t *testing.T) {
 	})
 	testutil.Ok(t, head.Close())
 
-	db, err := tsdb.OpenDBReadOnly(tmpDir, logger)
+	db, err := tsdb.OpenDBReadOnly(tmpDir, "", logutil.GoKitLogToSlog(logger))
 	testutil.Ok(t, err)
 
 	dbToClose := make(chan *tsdb.DBReadOnly, 1)
@@ -426,7 +393,7 @@ func TestTSDBStore_SeriesAccessWithoutDelegateClosing(t *testing.T) {
 		Random:           random,
 		SkipChunks:       true,
 	})
-	_ = createBlockFromHead(t, tmpDir, head)
+	_ = storetestutil.CreateBlockFromHead(t, tmpDir, head)
 	testutil.Ok(t, head.Close())
 
 	head, _ = storetestutil.CreateHeadWithSeries(t, 1, storetestutil.HeadGenOptions{
@@ -439,7 +406,7 @@ func TestTSDBStore_SeriesAccessWithoutDelegateClosing(t *testing.T) {
 	})
 	testutil.Ok(t, head.Close())
 
-	db, err := tsdb.OpenDBReadOnly(tmpDir, logger)
+	db, err := tsdb.OpenDBReadOnly(tmpDir, "", logutil.GoKitLogToSlog(logger))
 	testutil.Ok(t, err)
 	t.Cleanup(func() {
 		if db != nil {
@@ -520,11 +487,9 @@ func TestTSDBStore_SeriesAccessWithoutDelegateClosing(t *testing.T) {
 }
 
 func TestTSDBStoreSeries(t *testing.T) {
-	tb := testutil.NewTB(t)
-	// Make sure there are more samples, so we can check framing code.
-	storetestutil.RunSeriesInterestingCases(tb, 10e6, 200e3, func(t testutil.TB, samplesPerSeries, series int) {
-		benchTSDBStoreSeries(t, samplesPerSeries, series)
-	})
+	t.Parallel()
+
+	benchTSDBStoreSeries(testutil.NewTB(t), 10_000, 1)
 }
 
 func BenchmarkTSDBStoreSeries(b *testing.B) {
@@ -566,7 +531,7 @@ func benchTSDBStoreSeries(t testutil.TB, totalSamples, totalSeries int) {
 			resps[j] = append(resps[j], storepb.NewSeriesResponse(created[i]))
 		}
 
-		_ = createBlockFromHead(t, tmpDir, head)
+		_ = storetestutil.CreateBlockFromHead(t, tmpDir, head)
 		testutil.Ok(t, head.Close())
 	}
 
@@ -583,7 +548,7 @@ func benchTSDBStoreSeries(t testutil.TB, totalSamples, totalSeries int) {
 		resps[3] = append(resps[3], storepb.NewSeriesResponse(created[i]))
 	}
 
-	db, err := tsdb.OpenDBReadOnly(tmpDir, logger)
+	db, err := tsdb.OpenDBReadOnly(tmpDir, "", logutil.GoKitLogToSlog(logger))
 	testutil.Ok(t, err)
 
 	defer func() { testutil.Ok(t, db.Close()) }()

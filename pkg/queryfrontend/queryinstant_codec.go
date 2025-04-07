@@ -17,6 +17,7 @@ import (
 	"github.com/opentracing/opentracing-go"
 	otlog "github.com/opentracing/opentracing-go/log"
 	"github.com/prometheus/common/model"
+	"github.com/prometheus/prometheus/promql/parser"
 	"github.com/weaveworks/common/httpgrpc"
 
 	"github.com/prometheus/prometheus/promql/parser"
@@ -25,6 +26,7 @@ import (
 	cortexutil "github.com/thanos-io/thanos/internal/cortex/util"
 	"github.com/thanos-io/thanos/internal/cortex/util/spanlogger"
 	queryv1 "github.com/thanos-io/thanos/pkg/api/query"
+	"github.com/thanos-io/thanos/pkg/extpromql"
 )
 
 // queryInstantCodec is used to encode/decode Thanos instant query requests and responses.
@@ -163,6 +165,7 @@ func (c queryInstantCodec) DecodeRequest(_ context.Context, r *http.Request, for
 	result.Query = r.FormValue("query")
 	result.Path = r.URL.Path
 	result.Engine = r.FormValue("engine")
+	result.Stats = r.FormValue(queryv1.Stats)
 
 	for _, header := range forwardHeaders {
 		for h, hv := range r.Header {
@@ -188,6 +191,7 @@ func (c queryInstantCodec) EncodeRequest(ctx context.Context, r queryrange.Reque
 		queryv1.PartialResponseParam: []string{strconv.FormatBool(thanosReq.PartialResponse)},
 		queryv1.EngineParam:          []string{thanosReq.Engine},
 		queryv1.ReplicaLabelsParam:   thanosReq.ReplicaLabels,
+		queryv1.Stats:                []string{thanosReq.Stats},
 	}
 
 	if thanosReq.Time > 0 {
@@ -260,7 +264,10 @@ func (c queryInstantCodec) EncodeResponse(ctx context.Context, res queryrange.Re
 func (c queryInstantCodec) DecodeResponse(ctx context.Context, r *http.Response, req queryrange.Request) (queryrange.Response, error) {
 	if r.StatusCode/100 != 2 {
 		body, _ := io.ReadAll(r.Body)
-		return nil, httpgrpc.Errorf(r.StatusCode, string(body))
+		return nil, httpgrpc.ErrorFromHTTPResponse(&httpgrpc.HTTPResponse{
+			Code: int32(r.StatusCode),
+			Body: body,
+		})
 	}
 	log, ctx := spanlogger.New(ctx, "ParseQueryInstantResponse") //nolint:ineffassign,staticcheck
 	defer log.Finish()
@@ -370,7 +377,7 @@ const (
 )
 
 func sortPlanForQuery(q string) (sortPlan, error) {
-	expr, err := parser.ParseExpr(q)
+	expr, err := extpromql.ParseExpr(q)
 	if err != nil {
 		return 0, err
 	}

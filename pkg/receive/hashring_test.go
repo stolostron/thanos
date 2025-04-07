@@ -19,6 +19,8 @@ import (
 )
 
 func TestHashringGet(t *testing.T) {
+	t.Parallel()
+
 	ts := &prompb.TimeSeries{
 		Labels: []labelpb.ZLabel{
 			{
@@ -138,6 +140,63 @@ func TestHashringGet(t *testing.T) {
 				"node6": {},
 			},
 		},
+		{
+			name: "glob hashring match",
+			cfg: []HashringConfig{
+				{
+					Endpoints:         []Endpoint{{Address: "node1"}, {Address: "node2"}, {Address: "node3"}},
+					Tenants:           []string{"prefix*"},
+					TenantMatcherType: TenantMatcherGlob,
+				},
+				{
+					Endpoints: []Endpoint{{Address: "node4"}, {Address: "node5"}, {Address: "node6"}},
+				},
+			},
+			nodes: map[string]struct{}{
+				"node1": {},
+				"node2": {},
+				"node3": {},
+			},
+			tenant: "prefix-1",
+		},
+		{
+			name: "glob hashring not match",
+			cfg: []HashringConfig{
+				{
+					Endpoints:         []Endpoint{{Address: "node1"}, {Address: "node2"}, {Address: "node3"}},
+					Tenants:           []string{"prefix*"},
+					TenantMatcherType: TenantMatcherGlob,
+				},
+				{
+					Endpoints: []Endpoint{{Address: "node4"}, {Address: "node5"}, {Address: "node6"}},
+				},
+			},
+			nodes: map[string]struct{}{
+				"node4": {},
+				"node5": {},
+				"node6": {},
+			},
+			tenant: "suffix-1",
+		},
+		{
+			name: "glob hashring multiple matches",
+			cfg: []HashringConfig{
+				{
+					Endpoints:         []Endpoint{{Address: "node1"}, {Address: "node2"}, {Address: "node3"}},
+					Tenants:           []string{"t1-*", "t2", "t3-*"},
+					TenantMatcherType: TenantMatcherGlob,
+				},
+				{
+					Endpoints: []Endpoint{{Address: "node4"}, {Address: "node5"}, {Address: "node6"}},
+				},
+			},
+			nodes: map[string]struct{}{
+				"node1": {},
+				"node2": {},
+				"node3": {},
+			},
+			tenant: "t2",
+		},
 	} {
 		hs, err := NewMultiHashring(AlgorithmHashmod, 3, tc.cfg)
 		require.NoError(t, err)
@@ -148,7 +207,7 @@ func TestHashringGet(t *testing.T) {
 				t.Errorf("case %q: got unexpected error: %v", tc.name, err)
 				continue
 			}
-			if _, ok := tc.nodes[h]; !ok {
+			if _, ok := tc.nodes[h.Address]; !ok {
 				t.Errorf("case %q: got unexpected node %q", tc.name, h)
 			}
 			continue
@@ -160,6 +219,8 @@ func TestHashringGet(t *testing.T) {
 }
 
 func TestKetamaHashringGet(t *testing.T) {
+	t.Parallel()
+
 	baseTS := &prompb.TimeSeries{
 		Labels: []labelpb.ZLabel{
 			{
@@ -236,17 +297,21 @@ func TestKetamaHashringGet(t *testing.T) {
 
 			result, err := hashRing.GetN("tenant", test.ts, test.n)
 			require.NoError(t, err)
-			require.Equal(t, test.expectedNode, result)
+			require.Equal(t, test.expectedNode, result.Address)
 		})
 	}
 }
 
 func TestKetamaHashringBadConfigIsRejected(t *testing.T) {
+	t.Parallel()
+
 	_, err := newKetamaHashring([]Endpoint{{Address: "node-1"}}, 1, 2)
 	require.Error(t, err)
 }
 
 func TestKetamaHashringConsistency(t *testing.T) {
+	t.Parallel()
+
 	series := makeSeries()
 
 	ringA := []Endpoint{{Address: "node-1"}, {Address: "node-2"}, {Address: "node-3"}}
@@ -267,6 +332,8 @@ func TestKetamaHashringConsistency(t *testing.T) {
 }
 
 func TestKetamaHashringIncreaseAtEnd(t *testing.T) {
+	t.Parallel()
+
 	series := makeSeries()
 
 	initialRing := []Endpoint{{Address: "node-1"}, {Address: "node-2"}, {Address: "node-3"}}
@@ -287,6 +354,8 @@ func TestKetamaHashringIncreaseAtEnd(t *testing.T) {
 }
 
 func TestKetamaHashringIncreaseInMiddle(t *testing.T) {
+	t.Parallel()
+
 	series := makeSeries()
 
 	initialRing := []Endpoint{{Address: "node-1"}, {Address: "node-3"}}
@@ -307,6 +376,8 @@ func TestKetamaHashringIncreaseInMiddle(t *testing.T) {
 }
 
 func TestKetamaHashringReplicationConsistency(t *testing.T) {
+	t.Parallel()
+
 	series := makeSeries()
 
 	initialRing := []Endpoint{{Address: "node-1"}, {Address: "node-4"}, {Address: "node-5"}}
@@ -327,6 +398,8 @@ func TestKetamaHashringReplicationConsistency(t *testing.T) {
 }
 
 func TestKetamaHashringReplicationConsistencyWithAZs(t *testing.T) {
+	t.Parallel()
+
 	for _, tt := range []struct {
 		initialRing []Endpoint
 		resizedRing []Endpoint
@@ -379,6 +452,8 @@ func TestKetamaHashringReplicationConsistencyWithAZs(t *testing.T) {
 }
 
 func TestKetamaHashringEvenAZSpread(t *testing.T) {
+	t.Parallel()
+
 	tenant := "default-tenant"
 	ts := &prompb.TimeSeries{
 		Labels:  labelpb.ZLabelsFromPromLabels(labels.FromStrings("foo", "bar")),
@@ -459,7 +534,7 @@ func TestKetamaHashringEvenAZSpread(t *testing.T) {
 				testutil.Ok(t, err)
 
 				for _, n := range tt.nodes {
-					if !strings.HasPrefix(n.Address, r) {
+					if !strings.HasPrefix(n.Address, r.Address) {
 						continue
 					}
 					azSpread[n.AZ]++
@@ -482,6 +557,8 @@ func TestKetamaHashringEvenAZSpread(t *testing.T) {
 }
 
 func TestKetamaHashringEvenNodeSpread(t *testing.T) {
+	t.Parallel()
+
 	tenant := "default-tenant"
 
 	for _, tt := range []struct {
@@ -561,7 +638,7 @@ func TestKetamaHashringEvenNodeSpread(t *testing.T) {
 					r, err := hashRing.GetN(tenant, ts, uint64(j))
 					testutil.Ok(t, err)
 
-					nodeSpread[r]++
+					nodeSpread[r.Address]++
 				}
 			}
 			for _, node := range nodeSpread {
@@ -573,6 +650,8 @@ func TestKetamaHashringEvenNodeSpread(t *testing.T) {
 }
 
 func TestInvalidAZHashringCfg(t *testing.T) {
+	t.Parallel()
+
 	for _, tt := range []struct {
 		cfg           []HashringConfig
 		replicas      uint64
@@ -636,7 +715,7 @@ func assignReplicatedSeries(series []prompb.TimeSeries, nodes []Endpoint, replic
 			if err != nil {
 				return nil, err
 			}
-			assignments[result] = append(assignments[result], ts)
+			assignments[result.Address] = append(assignments[result.Address], ts)
 
 		}
 	}

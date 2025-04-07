@@ -13,7 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/prometheus/prometheus/promql/parser"
+	"github.com/thanos-io/thanos/pkg/extpromql"
+
 	"github.com/stretchr/testify/require"
 	"github.com/weaveworks/common/httpgrpc"
 	"github.com/weaveworks/common/middleware"
@@ -333,6 +334,11 @@ func Test_evaluateAtModifier(t *testing.T) {
 			expected: "topk(5, rate(http_requests_total[1h] @ 1546300.800))",
 		},
 		{
+			// extended functions
+			in:       "topk(5, xrate(http_requests_total[1h] @ start()))",
+			expected: "topk(5, xrate(http_requests_total[1h] @ 1546300.800))",
+		},
+		{
 			in:       "topk(5, rate(http_requests_total[1h] @ 0))",
 			expected: "topk(5, rate(http_requests_total[1h] @ 0.000))",
 		},
@@ -369,9 +375,12 @@ func Test_evaluateAtModifier(t *testing.T) {
 			[10m:])`,
 		},
 		{
-			// parse error: missing unit character in duration
-			in:                "http_requests_total[5] @ 10.001",
-			expectedErrorCode: http.StatusBadRequest,
+			in:       `irate(kube_pod_info{namespace="test"}[1h:1m] @ start())`,
+			expected: `irate(kube_pod_info{namespace="test"}[1h:1m] @ 1546300.800)`,
+		},
+		{
+			in:       `irate(kube_pod_info{namespace="test"} @ end()[1h:1m] @ start())`,
+			expected: `irate(kube_pod_info{namespace="test"} @ 1646300.800 [1h:1m] @ 1546300.800)`,
 		},
 		{
 			// parse error: @ modifier must be preceded by an instant vector selector or range vector selector or a subquery
@@ -390,7 +399,7 @@ func Test_evaluateAtModifier(t *testing.T) {
 				require.Equal(t, tt.expectedErrorCode, int(httpResp.Code))
 			} else {
 				require.NoError(t, err)
-				expectedExpr, err := parser.ParseExpr(tt.expected)
+				expectedExpr, err := extpromql.ParseExpr(tt.expected)
 				require.NoError(t, err)
 				require.Equal(t, expectedExpr.String(), out)
 			}
