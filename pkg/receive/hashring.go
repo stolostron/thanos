@@ -103,23 +103,6 @@ func (s simpleHashring) Nodes() []Endpoint {
 	return s
 }
 
-func newSimpleHashring(endpoints []Endpoint) (Hashring, error) {
-	addresses := make([]string, len(endpoints))
-	for i := range endpoints {
-		if endpoints[i].AZ != "" {
-			return nil, errors.New("Hashmod algorithm does not support AZ aware hashring configuration. Either use Ketama or remove AZ configuration.")
-		}
-		addresses[i] = endpoints[i].Address
-	}
-	sort.Strings(addresses)
-
-	return simpleHashring(addresses), nil
-}
-
-func (s simpleHashring) Nodes() []string {
-	return s
-}
-
 // Get returns a target to handle the given tenant and time series.
 func (s simpleHashring) Get(tenant string, ts *prompb.TimeSeries) (Endpoint, error) {
 	return s.GetN(tenant, ts, 0)
@@ -153,7 +136,6 @@ type ketamaHashring struct {
 	endpoints    []Endpoint
 	sections     sections
 	numEndpoints uint64
-	nodes        []string
 }
 
 func newKetamaHashring(endpoints []Endpoint, sectionsPerNode int, replicationFactor uint64) (*ketamaHashring, error) {
@@ -256,7 +238,7 @@ func (c ketamaHashring) GetN(tenant string, ts *prompb.TimeSeries, n uint64) (En
 	}
 
 	endpointIndex := c.sections[i].replicas[n]
-	return c.endpoints[endpointIndex].Address, nil
+	return c.endpoints[endpointIndex], nil
 }
 
 type tenantSet map[string]tenantMatcher
@@ -350,10 +332,6 @@ func (m *multiHashring) GetN(tenant string, ts *prompb.TimeSeries, n uint64) (En
 }
 
 func (m *multiHashring) Nodes() []Endpoint {
-	return m.nodes
-}
-
-func (m *multiHashring) Nodes() []string {
 	return m.nodes
 }
 

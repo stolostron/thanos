@@ -86,34 +86,6 @@ func TestProxyStore_TSDBInfos(t *testing.T) {
 	testutil.Equals(t, expected, q.TSDBInfos())
 }
 
-func TestProxyStore_TSDBInfos(t *testing.T) {
-	stores := []Client{
-		&storetestutil.TestClient{
-			StoreTSDBInfos: nil,
-		},
-		&storetestutil.TestClient{
-			StoreTSDBInfos: []infopb.TSDBInfo{
-				infopb.NewTSDBInfo(0, 10, []labelpb.ZLabel{{Name: "lbl", Value: "val1"}}),
-			},
-		},
-		&storetestutil.TestClient{
-			StoreTSDBInfos: []infopb.TSDBInfo{
-				infopb.NewTSDBInfo(0, 20, []labelpb.ZLabel{{Name: "lbl", Value: "val2"}}),
-			},
-		},
-	}
-	q := NewProxyStore(nil, nil,
-		func() []Client { return stores },
-		component.Query, labels.EmptyLabels(), 0*time.Second, EagerRetrieval,
-	)
-
-	expected := []infopb.TSDBInfo{
-		infopb.NewTSDBInfo(0, 10, []labelpb.ZLabel{{Name: "lbl", Value: "val1"}}),
-		infopb.NewTSDBInfo(0, 20, []labelpb.ZLabel{{Name: "lbl", Value: "val2"}}),
-	}
-	testutil.Equals(t, expected, q.TSDBInfos())
-}
-
 func TestProxyStore_Series(t *testing.T) {
 	t.Parallel()
 

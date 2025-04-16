@@ -30,10 +30,6 @@ var (
 	notShardableErr = fmt.Errorf("expressions are not shardable")
 )
 
-var (
-	notShardableErr = fmt.Errorf("expressions are not shardable")
-)
-
 type Analyzer interface {
 	Analyze(string) (QueryAnalysis, error)
 }

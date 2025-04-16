@@ -417,11 +417,6 @@ func runQuery(
 	// Parse and sanitize the provided replica labels flags.
 	queryReplicaLabels = strutil.ParseFlagLabels(queryReplicaLabels)
 
-	options := []store.ProxyStoreOption{
-		store.WithTSDBSelector(tsdbSelector),
-		store.WithProxyStoreDebugLogging(debugLogging),
-	}
-
 	var (
 		proxyStore       = store.NewProxyStore(logger, reg, endpointSet.GetStoreClients, component.Query, selectorLset, storeResponseTimeout, store.RetrievalStrategy(grpcProxyStrategy), options...)
 		seriesProxy      = store.NewLimitedStoreServer(store.NewInstrumentedStoreServer(reg, proxyStore), reg, storeRateLimits)

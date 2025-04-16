@@ -43,6 +43,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/thanos-io/objstore"
+
 	"github.com/thanos-io/thanos/pkg/block"
 	"github.com/thanos-io/thanos/pkg/block/indexheader"
 	"github.com/thanos-io/thanos/pkg/block/metadata"
@@ -1139,11 +1140,6 @@ func newBlockSeriesClient(
 	var chunkr *bucketChunkReader
 	if !req.SkipChunks {
 		chunkr = b.chunkReader(logger)
-	}
-
-	extLset := b.extLset
-	if extLsetToRemove != nil {
-		extLset = rmLabels(extLset.Copy(), extLsetToRemove)
 	}
 
 	extLset := b.extLset
@@ -2985,66 +2981,6 @@ func toPostingGroup(ctx context.Context, lvalsFn func(name string) ([]string, er
 		return newPostingGroup(false, m.Name, nil, nil), nil, nil
 	}
 
-	pgs := make([]*postingGroup, 0, len(matchersMap))
-	// NOTE: Derived from tsdb.PostingsForMatchers.
-	for _, values := range matchersMap {
-		var (
-			mergedPG     *postingGroup
-			pg           *postingGroup
-			vals         []string
-			err          error
-			valuesCached bool
-		)
-		lvalsFunc := lvalsFn
-		matchers := make([]*labels.Matcher, 0, len(vals))
-		// Merge PostingGroups with the same matcher into 1 to
-		// avoid fetching duplicate postings.
-		for _, val := range values {
-			pg, vals, err = toPostingGroup(ctx, lvalsFunc, val)
-			if err != nil {
-				return nil, errors.Wrap(err, "toPostingGroup")
-			}
-			// Cache label values because label name is the same.
-			if !valuesCached && vals != nil {
-				lvals := vals
-				lvalsFunc = func(_ string) ([]string, error) {
-					return lvals, nil
-				}
-				valuesCached = true
-			}
-
-			// If this groups adds nothing, it's an empty group. We can shortcut this, since intersection with empty
-			// postings would return no postings anyway.
-			// E.g. label="non-existing-value" returns empty group.
-			if !pg.addAll && len(pg.addKeys) == 0 {
-				return nil, nil
-			}
-			if mergedPG == nil {
-				mergedPG = pg
-			} else {
-				mergedPG = mergedPG.mergeKeys(pg)
-			}
-
-			// If this groups adds nothing, it's an empty group. We can shortcut this, since intersection with empty
-			// postings would return no postings anyway.
-			// E.g. label="non-existing-value" returns empty group.
-			if !mergedPG.addAll && len(mergedPG.addKeys) == 0 {
-				return nil, nil
-			}
-			matchers = append(matchers, val)
-		}
-		// Set and sort matchers to be used when picking up posting fetch strategy.
-		mergedPG.matchers = newSortedMatchers(matchers)
-		pgs = append(pgs, mergedPG)
-	}
-	slices.SortFunc(pgs, func(a, b *postingGroup) int {
-		return strings.Compare(a.name, b.name)
-	})
-	return pgs, nil
-}
-
-// NOTE: Derived from tsdb.postingsForMatcher. index.Merge is equivalent to map duplication.
-func toPostingGroup(ctx context.Context, lvalsFn func(name string) ([]string, error), m *labels.Matcher) (*postingGroup, []string, error) {
 	// If the matcher selects an empty value, it selects all the series which don't
 	// have the label name set too. See: https://github.com/prometheus/prometheus/issues/3575
 	// and https://github.com/prometheus/prometheus/pull/3578#issuecomment-351653555.

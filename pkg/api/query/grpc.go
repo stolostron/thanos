@@ -162,39 +162,6 @@ func (g *GRPCAPI) Query(request *querypb.QueryRequest, server querypb.Query_Quer
 	return nil
 }
 
-func (g *GRPCAPI) getQueryForEngine(ctx context.Context, request *querypb.QueryRequest, queryable storage.Queryable, maxResolution int64) (promql.Query, error) {
-	lookbackDelta := g.lookbackDeltaCreate(maxResolution * 1000)
-	if request.LookbackDeltaSeconds > 0 {
-		lookbackDelta = time.Duration(request.LookbackDeltaSeconds) * time.Second
-	}
-	engineParam := request.Engine
-	if engineParam == querypb.EngineType_default {
-		engineParam = g.defaultEngine
-	}
-
-	var ts time.Time
-	if request.TimeSeconds == 0 {
-		ts = g.now()
-	} else {
-		ts = time.Unix(request.TimeSeconds, 0)
-	}
-	switch engineParam {
-	case querypb.EngineType_prometheus:
-		queryEngine := g.engineFactory.GetPrometheusEngine()
-		return queryEngine.NewInstantQuery(ctx, queryable, promql.NewPrometheusQueryOpts(false, lookbackDelta), request.Query, ts)
-	case querypb.EngineType_thanos:
-		queryEngine := g.engineFactory.GetThanosEngine()
-		plan, err := logicalplan.Unmarshal(request.QueryPlan.GetJson())
-		if err != nil {
-			return queryEngine.NewInstantQuery(ctx, queryable, promql.NewPrometheusQueryOpts(false, lookbackDelta), request.Query, ts)
-		}
-
-		return queryEngine.NewInstantQueryFromPlan(ctx, queryable, promql.NewPrometheusQueryOpts(false, lookbackDelta), plan, ts)
-	default:
-		return nil, status.Error(codes.InvalidArgument, "invalid engine parameter")
-	}
-}
-
 func (g *GRPCAPI) QueryRange(request *querypb.QueryRangeRequest, srv querypb.Query_QueryRangeServer) error {
 	ctx := srv.Context()
 	if request.TimeoutSeconds != 0 {

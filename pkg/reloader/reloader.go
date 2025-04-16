@@ -99,8 +99,6 @@ type Reloader struct {
 
 	tr TriggerReloader
 
-	tr TriggerReloader
-
 	lastCfgHash         []byte
 	lastCfgDirsHash     [][]byte
 	lastWatchedDirsHash []byte

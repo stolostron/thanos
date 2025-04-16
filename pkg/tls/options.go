@@ -49,11 +49,6 @@ func NewServerConfig(logger log.Logger, certPath, keyPath, clientCA, tlsMinVersi
 	if err != nil {
 		return nil, errors.Wrap(err, "server credentials")
 	}
-	// Certificate is loaded during server startup to check for any errors.
-	certificate, err := tls.LoadX509KeyPair(certPath, keyPath)
-	if err != nil {
-		return nil, errors.Wrap(err, "server credentials")
-	}
 
 	mngr := &serverTLSManager{
 		srvCertPath: certPath,

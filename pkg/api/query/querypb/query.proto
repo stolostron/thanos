@@ -80,12 +80,6 @@ message queryPlan {
   }
 }
 
-message queryPlan {
-  oneof encoding {
-    bytes json = 1;
-  }
-}
-
 message QueryRangeRequest {
   string query = 1;
   queryPlan queryPlan = 16;

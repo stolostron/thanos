@@ -27,7 +27,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/go-kit/log"
@@ -85,65 +84,6 @@ const (
 	RuleGroupParam           = "rule_group[]"
 	FileParam                = "file[]"
 )
-
-type PromqlEngineType string
-
-const (
-	PromqlEnginePrometheus PromqlEngineType = "prometheus"
-	PromqlEngineThanos     PromqlEngineType = "thanos"
-)
-
-type ThanosEngine interface {
-	promql.QueryEngine
-	NewInstantQueryFromPlan(ctx context.Context, q storage.Queryable, opts promql.QueryOpts, plan logicalplan.Node, ts time.Time) (promql.Query, error)
-	NewRangeQueryFromPlan(ctx context.Context, q storage.Queryable, opts promql.QueryOpts, root logicalplan.Node, start, end time.Time, step time.Duration) (promql.Query, error)
-}
-
-type QueryEngineFactory struct {
-	engineOpts            promql.EngineOpts
-	remoteEngineEndpoints promqlapi.RemoteEndpoints
-
-	createPrometheusEngine sync.Once
-	prometheusEngine       promql.QueryEngine
-
-	createThanosEngine sync.Once
-	thanosEngine       ThanosEngine
-	enableXFunctions   bool
-}
-
-func (f *QueryEngineFactory) GetPrometheusEngine() promql.QueryEngine {
-	f.createPrometheusEngine.Do(func() {
-		if f.prometheusEngine != nil {
-			return
-		}
-		f.prometheusEngine = promql.NewEngine(f.engineOpts)
-	})
-
-	return f.prometheusEngine
-}
-
-func (f *QueryEngineFactory) GetThanosEngine() ThanosEngine {
-	f.createThanosEngine.Do(func() {
-		if f.thanosEngine != nil {
-			return
-		}
-		if f.remoteEngineEndpoints == nil {
-			f.thanosEngine = engine.New(engine.Opts{EngineOpts: f.engineOpts, Engine: f.GetPrometheusEngine(), EnableAnalysis: true, EnableXFunctions: f.enableXFunctions})
-		} else {
-			f.thanosEngine = engine.NewDistributedEngine(engine.Opts{EngineOpts: f.engineOpts, Engine: f.GetPrometheusEngine(), EnableAnalysis: true}, f.remoteEngineEndpoints)
-		}
-	})
-
-	return f.thanosEngine
-}
-
-func NewQueryEngineFactory(engineOpts promql.EngineOpts, remoteEngineEndpoints promqlapi.RemoteEndpoints, enableExtendedFunctions bool) *QueryEngineFactory {
-	return &QueryEngineFactory{
-		engineOpts:            engineOpts,
-		remoteEngineEndpoints: remoteEngineEndpoints,
-		enableXFunctions:      enableExtendedFunctions,
-	}
-}
 
 // QueryAPI is an API used by Thanos Querier.
 type QueryAPI struct {

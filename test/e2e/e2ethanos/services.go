@@ -22,6 +22,7 @@ import (
 	"gopkg.in/yaml.v2"
 
 	"github.com/thanos-io/objstore/client"
+	"github.com/thanos-io/objstore/exthttp"
 	"github.com/thanos-io/objstore/providers/s3"
 
 	"github.com/thanos-io/thanos/pkg/alert"
@@ -675,14 +676,6 @@ func (r *ReceiveBuilder) Init() *e2eobs.Observable {
 
 	if r.capnp {
 		args["--receive.replication-protocol"] = "capnproto"
-	}
-
-	if r.tenantSplitLabel != "" {
-		args["--receive.split-tenant-label-name"] = r.tenantSplitLabel
-	}
-
-	if len(r.labels) > 0 {
-		args["--label"] = fmt.Sprintf("%s,%s", args["--label"], strings.Join(r.labels, ","))
 	}
 
 	hashring := r.hashringConfigs

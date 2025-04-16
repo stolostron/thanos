@@ -6,6 +6,7 @@ package logging
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"time"
 
 	"github.com/oklog/ulid"

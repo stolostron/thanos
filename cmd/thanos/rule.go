@@ -80,8 +80,6 @@ import (
 	"github.com/thanos-io/thanos/pkg/ui"
 )
 
-const dnsSDResolver = "miekgdns"
-
 type ruleConfig struct {
 	http    httpConfig
 	grpc    grpcConfig
@@ -168,8 +166,7 @@ func registerRule(app *extkingpin.App) {
 
 	cmd.Flag("query.enable-x-functions", "Whether to enable extended rate functions (xrate, xincrease and xdelta). Only has effect when used with Thanos engine.").Default("false").BoolVar(&conf.extendedFunctionsEnabled)
 
-	cmd.Flag("grpc-query-endpoint", "Addresses of Thanos gRPC query API servers (repeatable). The scheme may be prefixed with 'dns+' or 'dnssrv+' to detect Thanos API servers through respective DNS lookups.").
-		PlaceHolder("<endpoint>").StringsVar(&conf.grpcQueryEndpoints)
+	conf.rwConfig = extflag.RegisterPathOrContent(cmd, "remote-write.config", "YAML config for the remote-write configurations, that specify servers where samples should be sent to (see https://prometheus.io/docs/prometheus/latest/configuration/configuration/#remote_write). This automatically enables stateless mode for ruler and no series will be stored in the ruler's TSDB. If an empty config (or file) is provided, the flag is ignored and ruler is run with its own TSDB.", extflag.WithEnvSubstitution())
 
 	conf.objStoreConfig = extkingpin.RegisterCommonObjStoreFlags(cmd, "", false)
 
