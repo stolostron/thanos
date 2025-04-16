@@ -13,14 +13,14 @@ import (
 	"time"
 
 	"github.com/bradfitz/gomemcache/memcache"
+	"github.com/efficientgo/core/testutil"
 	"github.com/go-kit/log"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	prom_testutil "github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sony/gobreaker"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/atomic"
-
-	"github.com/efficientgo/core/testutil"
 
 	"github.com/thanos-io/thanos/pkg/gate"
 	"github.com/thanos-io/thanos/pkg/model"
@@ -454,13 +454,9 @@ func TestMemcachedClient_sortKeysByServer(t *testing.T) {
 	config.Addresses = []string{"127.0.0.1:11211", "127.0.0.2:11211"}
 	backendMock := newMemcachedClientBackendMock()
 	selector := &mockServerSelector{
-		serversByKey: map[string]mockAddr{
-			"key1": "127.0.0.1:11211",
-			"key2": "127.0.0.2:11211",
-			"key3": "127.0.0.1:11211",
-			"key4": "127.0.0.2:11211",
-			"key5": "127.0.0.1:11211",
-			"key6": "127.0.0.2:11211",
+		resp: map[string][]string{
+			"127.0.0.1:11211": {"key1", "key2", "key4"},
+			"127.0.0.2:11211": {"key5", "key3", "key6"},
 		},
 	}
 
@@ -478,41 +474,44 @@ func TestMemcachedClient_sortKeysByServer(t *testing.T) {
 	}
 
 	sorted := client.sortKeysByServer(keys)
-	testutil.ContainsStringSlice(t, sorted, []string{"key1", "key3", "key5"})
-	testutil.ContainsStringSlice(t, sorted, []string{"key2", "key4", "key6"})
-}
+	testutil.ContainsStringSlice(t, sorted, []string{"key1", "key2", "key4"})
+	testutil.ContainsStringSlice(t, sorted, []string{"key5", "key3", "key6"})
 
-type mockAddr string
+	// 1 server no need to sort.
+	client.selector = &mockServerSelector{
+		resp: map[string][]string{
+			"127.0.0.1:11211": {},
+		},
+	}
+	sorted = client.sortKeysByServer(keys)
+	testutil.ContainsStringSlice(t, sorted, []string{"key1", "key2", "key3", "key4", "key5", "key6"})
 
-func (m mockAddr) Network() string {
-	return "mock"
-}
-
-func (m mockAddr) String() string {
-	return string(m)
+	// 0 server no need to sort.
+	client.selector = &mockServerSelector{
+		resp: map[string][]string{},
+		err:  memcache.ErrCacheMiss,
+	}
+	sorted = client.sortKeysByServer(keys)
+	testutil.ContainsStringSlice(t, sorted, []string{"key1", "key2", "key3", "key4", "key5", "key6"})
 }
 
 type mockServerSelector struct {
-	serversByKey map[string]mockAddr
+	resp map[string][]string
+	err  error
 }
 
+// PickServer is not used here.
 func (m *mockServerSelector) PickServer(key string) (net.Addr, error) {
-	if srv, ok := m.serversByKey[key]; ok {
-		return srv, nil
-	}
-
 	panic(fmt.Sprintf("unmapped key: %s", key))
 }
 
+// Each is not used here.
 func (m *mockServerSelector) Each(f func(net.Addr) error) error {
-	for k := range m.serversByKey {
-		addr := m.serversByKey[k]
-		if err := f(addr); err != nil {
-			return err
-		}
-	}
+	panic("not implemented")
+}
 
-	return nil
+func (m *mockServerSelector) PickServerForKeys(keys []string) (map[string][]string, error) {
+	return m.resp, m.err
 }
 
 func (m *mockServerSelector) SetServers(...string) error {
@@ -726,7 +725,7 @@ func TestMemcachedClient_SetAsync_CircuitBreaker(t *testing.T) {
 			config := defaultMemcachedClientConfig
 			config.Addresses = []string{"127.0.0.1:11211"}
 			config.SetAsyncCircuitBreaker.Enabled = true
-			config.SetAsyncCircuitBreaker.OpenDuration = 2 * time.Millisecond
+			config.SetAsyncCircuitBreaker.OpenDuration = 10 * time.Millisecond
 			config.SetAsyncCircuitBreaker.HalfOpenMaxRequests = 100
 			config.SetAsyncCircuitBreaker.MinRequests = testdata.minRequests
 			config.SetAsyncCircuitBreaker.ConsecutiveFailures = testdata.consecutiveFailures
@@ -750,7 +749,10 @@ func TestMemcachedClient_SetAsync_CircuitBreaker(t *testing.T) {
 				// Trigger the state transaction.
 				time.Sleep(time.Millisecond)
 				testutil.Ok(t, client.SetAsync(strconv.Itoa(testdata.setErrors), []byte("value"), time.Second))
-				testutil.Equals(t, gobreaker.StateOpen, cbimpl.State(), "state should be open")
+
+				require.Eventuallyf(t, func() bool {
+					return cbimpl.State() == gobreaker.StateOpen
+				}, 2*time.Second, time.Millisecond, "circuit breaker did not open")
 
 				time.Sleep(config.SetAsyncCircuitBreaker.OpenDuration)
 				for i := testdata.setErrors; i < testdata.setErrors+10; i++ {

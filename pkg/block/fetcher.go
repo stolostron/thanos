@@ -213,7 +213,7 @@ func (f *RecursiveLister) GetActiveAndPartialBlockIDs(ctx context.Context, ch ch
 		case ch <- id:
 		}
 		return nil
-	}, objstore.WithRecursiveIter)
+	}, objstore.WithRecursiveIter())
 	return partialBlocks, err
 }
 
@@ -257,7 +257,11 @@ func (f *ConcurrentLister) GetActiveAndPartialBlockIDs(ctx context.Context, ch c
 					mu.Unlock()
 					continue
 				}
-				ch <- uid
+				select {
+				case <-gCtx.Done():
+					return gCtx.Err()
+				case ch <- uid:
+				}
 			}
 			return nil
 		})
@@ -269,8 +273,8 @@ func (f *ConcurrentLister) GetActiveAndPartialBlockIDs(ctx context.Context, ch c
 			return nil
 		}
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
+		case <-gCtx.Done():
+			return gCtx.Err()
 		case metaChan <- id:
 		}
 		return nil
@@ -585,8 +589,6 @@ func (f *BaseFetcher) fetch(ctx context.Context, metrics *FetcherMetrics, filter
 			metrics.SyncFailures.Inc()
 		}
 	}()
-	metrics.Syncs.Inc()
-	metrics.ResetTx()
 
 	// Run this in thread safe run group.
 	// TODO(bwplotka): Consider custom singleflight with ttl.
@@ -617,7 +619,6 @@ func (f *BaseFetcher) fetch(ctx context.Context, metrics *FetcherMetrics, filter
 	}
 
 	metrics.Synced.WithLabelValues(LoadedMeta).Set(float64(len(metas)))
-	metrics.Submit()
 
 	if len(resp.metaErrs) > 0 {
 		return metas, resp.partial, errors.Wrap(resp.metaErrs.Err(), "incomplete view")
@@ -650,6 +651,9 @@ type MetaFetcher struct {
 //
 // Returned error indicates a failure in fetching metadata. Returned meta can be assumed as correct, with some blocks missing.
 func (f *MetaFetcher) Fetch(ctx context.Context) (metas map[ulid.ULID]*metadata.Meta, partial map[ulid.ULID]error, err error) {
+	f.metrics.Syncs.Inc()
+	f.metrics.ResetTx()
+
 	metas, partial, err = f.wrapped.fetch(ctx, f.metrics, f.filters)
 	if f.listener != nil {
 		blocks := make([]metadata.Meta, 0, len(metas))
@@ -658,6 +662,8 @@ func (f *MetaFetcher) Fetch(ctx context.Context) (metas map[ulid.ULID]*metadata.
 		}
 		f.listener(blocks, err)
 	}
+
+	f.metrics.Submit()
 	return metas, partial, err
 }
 

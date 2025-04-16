@@ -146,6 +146,8 @@ func registerQueryFrontend(app *extkingpin.App) {
 	cmd.Flag("query-frontend.log-queries-longer-than", "Log queries that are slower than the specified duration. "+
 		"Set to 0 to disable. Set to < 0 to enable on all queries.").Default("0").DurationVar(&cfg.CortexHandlerConfig.LogQueriesLongerThan)
 
+	cmd.Flag("query-frontend.force-query-stats", "Enables query statistics for all queries and will export statistics as logs and service headers.").Default("false").BoolVar(&cfg.CortexHandlerConfig.QueryStatsEnabled)
+
 	cmd.Flag("query-frontend.org-id-header", "Deprecation Warning - This flag will be soon deprecated in favor of query-frontend.tenant-header"+
 		" and both flags cannot be used at the same time. "+
 		"Request header names used to identify the source of slow queries (repeated flag). "+
@@ -160,6 +162,8 @@ func registerQueryFrontend(app *extkingpin.App) {
 	cmd.Flag("query-frontend.tenant-certificate-field", "Use TLS client's certificate field to determine tenant for requests. Must be one of "+tenancy.CertificateFieldOrganization+", "+tenancy.CertificateFieldOrganizationalUnit+" or "+tenancy.CertificateFieldCommonName+". This setting will cause the query-frontend.tenant-header flag value to be ignored.").Hidden().Default("").EnumVar(&cfg.TenantCertField, "", tenancy.CertificateFieldOrganization, tenancy.CertificateFieldOrganizationalUnit, tenancy.CertificateFieldCommonName)
 
 	cmd.Flag("query-frontend.vertical-shards", "Number of shards to use when distributing shardable PromQL queries. For more details, you can refer to the Vertical query sharding proposal: https://thanos.io/tip/proposals-accepted/202205-vertical-query-sharding.md").IntVar(&cfg.NumShards)
+
+	cmd.Flag("query-frontend.slow-query-logs-user-header", "Set the value of the field remote_user in the slow query logs to the value of the given HTTP header. Falls back to reading the user from the basic auth header.").PlaceHolder("<http-header-name>").Default("").StringVar(&cfg.CortexHandlerConfig.SlowQueryLogsUserHeader)
 
 	reqLogConfig := extkingpin.RegisterRequestLoggingFlags(cmd)
 
@@ -266,8 +270,9 @@ func runQueryFrontend(
 			return errors.Wrap(err, "initializing the query range cache config")
 		}
 		cfg.QueryRangeConfig.ResultsCacheConfig = &queryrange.ResultsCacheConfig{
-			Compression: cfg.CacheCompression,
-			CacheConfig: *cacheConfig,
+			Compression:                cfg.CacheCompression,
+			CacheConfig:                *cacheConfig,
+			CacheQueryableSamplesStats: cfg.CortexHandlerConfig.QueryStatsEnabled,
 		}
 	}
 
@@ -350,19 +355,17 @@ func runQueryFrontend(
 				if !cfg.webDisableCORS {
 					api.SetCORS(w)
 				}
-				tracing.HTTPMiddleware(
-					tracer,
-					name,
-					logger,
-					ins.NewHandler(
+				middleware.RequestID(
+					tracing.HTTPMiddleware(
+						tracer,
 						name,
-						gzhttp.GzipHandler(
-							middleware.RequestID(
-								logMiddleware.HTTPMiddleware(name, f),
-							),
+						logger,
+						ins.NewHandler(
+							name,
+							logMiddleware.HTTPMiddleware(name, f),
 						),
+						// Cortex frontend middlewares require orgID.
 					),
-					// Cortex frontend middlewares require orgID.
 				).ServeHTTP(w, r.WithContext(user.InjectOrgID(r.Context(), orgId)))
 			})
 			return hf

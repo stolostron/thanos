@@ -31,6 +31,7 @@ import (
 	"github.com/thanos-io/thanos/pkg/block"
 	"github.com/thanos-io/thanos/pkg/block/metadata"
 	"github.com/thanos-io/thanos/pkg/dedup"
+	"github.com/thanos-io/thanos/pkg/logutil"
 	"github.com/thanos-io/thanos/pkg/testutil/e2eutil"
 )
 
@@ -106,7 +107,7 @@ func TestSyncer_GarbageCollect_e2e(t *testing.T) {
 		garbageCollectedBlocks := promauto.With(nil).NewCounter(prometheus.CounterOpts{})
 		blockMarkedForNoCompact := promauto.With(nil).NewCounter(prometheus.CounterOpts{})
 		ignoreDeletionMarkFilter := block.NewIgnoreDeletionMarkFilter(nil, nil, 48*time.Hour, fetcherConcurrency)
-		sy, err := NewMetaSyncer(nil, nil, bkt, metaFetcher, duplicateBlocksFilter, ignoreDeletionMarkFilter, blocksMarkedForDeletion, garbageCollectedBlocks)
+		sy, err := NewMetaSyncer(nil, nil, bkt, metaFetcher, duplicateBlocksFilter, ignoreDeletionMarkFilter, blocksMarkedForDeletion, garbageCollectedBlocks, 0)
 		testutil.Ok(t, err)
 
 		// Do one initial synchronization with the bucket.
@@ -209,10 +210,10 @@ func testGroupCompactE2e(t *testing.T, mergeFunc storage.VerticalChunkSeriesMerg
 		blocksMarkedForDeletion := promauto.With(nil).NewCounter(prometheus.CounterOpts{})
 		blocksMaredForNoCompact := promauto.With(nil).NewCounter(prometheus.CounterOpts{})
 		garbageCollectedBlocks := promauto.With(nil).NewCounter(prometheus.CounterOpts{})
-		sy, err := NewMetaSyncer(nil, nil, bkt, metaFetcher, duplicateBlocksFilter, ignoreDeletionMarkFilter, blocksMarkedForDeletion, garbageCollectedBlocks)
+		sy, err := NewMetaSyncer(nil, nil, bkt, metaFetcher, duplicateBlocksFilter, ignoreDeletionMarkFilter, blocksMarkedForDeletion, garbageCollectedBlocks, 0)
 		testutil.Ok(t, err)
 
-		comp, err := tsdb.NewLeveledCompactor(ctx, reg, logger, []int64{1000, 3000}, nil, mergeFunc)
+		comp, err := tsdb.NewLeveledCompactor(ctx, reg, logutil.GoKitLogToSlog(logger), []int64{1000, 3000}, nil, mergeFunc)
 		testutil.Ok(t, err)
 
 		planner := NewPlanner(logger, []int64{1000, 3000}, noCompactMarkerFilter)
@@ -258,7 +259,7 @@ func testGroupCompactE2e(t *testing.T, mergeFunc storage.VerticalChunkSeriesMerg
 			},
 			// Mix order to make sure compactor is able to deduct min time / max time.
 			// Currently TSDB does not produces empty blocks (see: https://github.com/prometheus/tsdb/pull/374). However before v2.7.0 it was
-			// so we still want to mimick this case as close as possible.
+			// so we still want to mimic this case as close as possible.
 			{
 				mint: 1000, maxt: 2000, extLset: extLabels, res: 124,
 				// Empty block.
@@ -432,7 +433,7 @@ func createBlock(t testing.TB, ctx context.Context, prepareDir string, b blockge
 	if b.numSamples == 0 {
 		id, err = e2eutil.CreateEmptyBlock(prepareDir, b.mint, b.maxt, b.extLset, b.res)
 	} else {
-		id, err = e2eutil.CreateBlock(ctx, prepareDir, b.series, b.numSamples, b.mint, b.maxt, b.extLset, b.res, metadata.NoneFunc)
+		id, err = e2eutil.CreateBlock(ctx, prepareDir, b.series, b.numSamples, b.mint, b.maxt, b.extLset, b.res, metadata.NoneFunc, nil)
 	}
 	testutil.Ok(t, err)
 
@@ -493,7 +494,7 @@ func TestGarbageCollectDoesntCreateEmptyBlocksWithDeletionMarksOnly(t *testing.T
 		})
 		testutil.Ok(t, err)
 
-		sy, err := NewMetaSyncer(nil, nil, bkt, metaFetcher, duplicateBlocksFilter, ignoreDeletionMarkFilter, blocksMarkedForDeletion, garbageCollectedBlocks)
+		sy, err := NewMetaSyncer(nil, nil, bkt, metaFetcher, duplicateBlocksFilter, ignoreDeletionMarkFilter, blocksMarkedForDeletion, garbageCollectedBlocks, 0)
 		testutil.Ok(t, err)
 
 		// Do one initial synchronization with the bucket.

@@ -7,6 +7,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/thanos-io/thanos/pkg/extpromql"
 	"net/http"
 	"sort"
 	"strings"
@@ -221,7 +222,7 @@ func (s resultsCache) Do(ctx context.Context, r Request) (Response, error) {
 	tenantIDs, err := tenant.TenantIDs(ctx)
 	respWithStats := r.GetStats() != "" && s.cacheQueryableSamplesStats
 	if err != nil {
-		return nil, httpgrpc.Errorf(http.StatusBadRequest, err.Error())
+		return nil, httpgrpc.Errorf(http.StatusBadRequest, "%s", err.Error())
 	}
 
 	// If cache_queryable_samples_stats is enabled we always need request the status upstream
@@ -325,7 +326,7 @@ func (s resultsCache) isAtModifierCachable(r Request, maxCacheTime int64) bool {
 	if !strings.Contains(query, "@") {
 		return true
 	}
-	expr, err := parser.ParseExpr(query)
+	expr, err := extpromql.ParseExpr(query)
 	if err != nil {
 		// We are being pessimistic in such cases.
 		level.Warn(s.logger).Log("msg", "failed to parse query, considering @ modifier as not cachable", "query", query, "err", err)
@@ -370,7 +371,7 @@ func (s resultsCache) isOffsetCachable(r Request) bool {
 	if !strings.Contains(query, "offset") {
 		return true
 	}
-	expr, err := parser.ParseExpr(query)
+	expr, err := extpromql.ParseExpr(query)
 	if err != nil {
 		level.Warn(s.logger).Log("msg", "failed to parse query, considering offset as not cachable", "query", query, "err", err)
 		return false

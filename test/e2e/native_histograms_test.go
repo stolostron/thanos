@@ -21,7 +21,6 @@ import (
 	"github.com/prometheus/prometheus/config"
 	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/prompb"
-	"github.com/prometheus/prometheus/storage/remote"
 	"github.com/prometheus/prometheus/tsdb/tsdbutil"
 
 	"github.com/thanos-io/thanos/pkg/clientconfig"
@@ -49,8 +48,8 @@ func TestQueryNativeHistograms(t *testing.T) {
 	testutil.Ok(t, err)
 	t.Cleanup(e2ethanos.CleanScenario(t, e))
 
-	prom1, sidecar1 := e2ethanos.NewPrometheusWithSidecar(e, "ha1", e2ethanos.DefaultPromConfig("prom-ha", 0, "", "", e2ethanos.LocalPrometheusTarget), "", e2ethanos.DefaultPrometheusImage(), "", "native-histograms", "remote-write-receiver")
-	prom2, sidecar2 := e2ethanos.NewPrometheusWithSidecar(e, "ha2", e2ethanos.DefaultPromConfig("prom-ha", 1, "", "", e2ethanos.LocalPrometheusTarget), "", e2ethanos.DefaultPrometheusImage(), "", "native-histograms", "remote-write-receiver")
+	prom1, sidecar1 := e2ethanos.NewPrometheusWithSidecar(e, "ha1", e2ethanos.DefaultPromConfig("prom-ha", 0, "", "", e2ethanos.LocalPrometheusTarget), "", e2ethanos.DefaultPrometheusImage(), "", "native-histograms")
+	prom2, sidecar2 := e2ethanos.NewPrometheusWithSidecar(e, "ha2", e2ethanos.DefaultPromConfig("prom-ha", 1, "", "", e2ethanos.LocalPrometheusTarget), "", e2ethanos.DefaultPrometheusImage(), "", "native-histograms")
 	testutil.Ok(t, e2e.StartAndWaitReady(prom1, sidecar1, prom2, sidecar2))
 
 	querier := e2ethanos.NewQuerierBuilder(e, "querier", sidecar1.InternalEndpoint("grpc"), sidecar2.InternalEndpoint("grpc")).
@@ -163,8 +162,8 @@ func TestQueryFrontendNativeHistograms(t *testing.T) {
 	testutil.Ok(t, err)
 	t.Cleanup(e2ethanos.CleanScenario(t, e))
 
-	prom1, sidecar1 := e2ethanos.NewPrometheusWithSidecar(e, "ha1", e2ethanos.DefaultPromConfig("prom-ha", 0, "", "", e2ethanos.LocalPrometheusTarget), "", e2ethanos.DefaultPrometheusImage(), "", "native-histograms", "remote-write-receiver")
-	prom2, sidecar2 := e2ethanos.NewPrometheusWithSidecar(e, "ha2", e2ethanos.DefaultPromConfig("prom-ha", 1, "", "", e2ethanos.LocalPrometheusTarget), "", e2ethanos.DefaultPrometheusImage(), "", "native-histograms", "remote-write-receiver")
+	prom1, sidecar1 := e2ethanos.NewPrometheusWithSidecar(e, "ha1", e2ethanos.DefaultPromConfig("prom-ha", 0, "", "", e2ethanos.LocalPrometheusTarget), "", e2ethanos.DefaultPrometheusImage(), "", "native-histograms")
+	prom2, sidecar2 := e2ethanos.NewPrometheusWithSidecar(e, "ha2", e2ethanos.DefaultPromConfig("prom-ha", 1, "", "", e2ethanos.LocalPrometheusTarget), "", e2ethanos.DefaultPrometheusImage(), "", "native-histograms")
 	testutil.Ok(t, e2e.StartAndWaitReady(prom1, sidecar1, prom2, sidecar2))
 
 	querier := e2ethanos.NewQuerierBuilder(e, "querier", sidecar1.InternalEndpoint("grpc"), sidecar2.InternalEndpoint("grpc")).Init()
@@ -401,12 +400,12 @@ func writeHistograms(ctx context.Context, now time.Time, name string, histograms
 
 	for i, fh := range floatHistograms {
 		ts := startTime.Add(time.Duration(i) * 30 * time.Second).UnixMilli()
-		prompbHistograms = append(prompbHistograms, remote.FloatHistogramToHistogramProto(ts, fh))
+		prompbHistograms = append(prompbHistograms, prompb.FromFloatHistogram(ts, fh))
 	}
 
 	for i, h := range histograms {
 		ts := startTime.Add(time.Duration(i) * 30 * time.Second).UnixMilli()
-		prompbHistograms = append(prompbHistograms, remote.HistogramToHistogramProto(ts, h))
+		prompbHistograms = append(prompbHistograms, prompb.FromIntHistogram(ts, h))
 	}
 
 	timeSeriespb := prompb.TimeSeries{

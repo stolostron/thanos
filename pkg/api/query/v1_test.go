@@ -34,6 +34,7 @@ import (
 	"github.com/go-kit/log"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/common/promslog"
 	"github.com/prometheus/common/route"
 	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/model/labels"
@@ -52,6 +53,7 @@ import (
 	baseAPI "github.com/thanos-io/thanos/pkg/api"
 	"github.com/thanos-io/thanos/pkg/compact"
 	"github.com/thanos-io/thanos/pkg/component"
+	"github.com/thanos-io/thanos/pkg/dedup"
 	"github.com/thanos-io/thanos/pkg/gate"
 	"github.com/thanos-io/thanos/pkg/query"
 	"github.com/thanos-io/thanos/pkg/rules/rulespb"
@@ -84,6 +86,30 @@ func lookupStats(a, b interface{}) bool {
 	rb := b.(*queryData)
 	return (ra.Stats == nil && rb.Stats == nil) || (ra.Stats != nil && rb.Stats != nil)
 }
+
+var (
+	timeout = 100 * time.Second
+
+	queryFactory = NewQueryFactory(
+		prometheus.NewRegistry(),
+		log.NewNopLogger(),
+		timeout,
+		5*time.Minute,
+		30*time.Second,
+		true,
+		nil,
+		PromqlQueryModeLocal,
+	)
+
+	emptyRemoteEndpointsCreate = query.NewRemoteEndpointsCreator(
+		log.NewNopLogger(),
+		func() []query.Client { return nil },
+		nil,
+		timeout,
+		true,
+		true,
+	)
+)
 
 func testEndpoint(t *testing.T, test endpointTestCase, name string, responseCompareFunc responeCompareFunction) bool {
 	return t.Run(name, func(t *testing.T) {
@@ -184,21 +210,15 @@ func TestQueryEndpoints(t *testing.T) {
 	testutil.Ok(t, app.Commit())
 
 	now := time.Now()
-	timeout := 100 * time.Second
-	ef := NewQueryEngineFactory(promql.EngineOpts{
-		Logger:     nil,
-		Reg:        nil,
-		MaxSamples: 10000,
-		Timeout:    timeout,
-	}, nil, false)
 	api := &QueryAPI{
 		baseAPI: &baseAPI.BaseAPI{
 			Now: func() time.Time { return now },
 		},
-		queryableCreate:       query.NewQueryableCreator(nil, nil, newProxyStoreWithTSDBStore(db), 2, timeout),
-		engineFactory:         ef,
-		defaultEngine:         PromqlEnginePrometheus,
+		queryableCreate:       query.NewQueryableCreator(nil, nil, newProxyStoreWithTSDBStore(db), 2, timeout, dedup.AlgorithmPenalty),
+		remoteEndpointsCreate: emptyRemoteEndpointsCreate,
+		queryCreate:           queryFactory,
 		lookbackDeltaCreate:   func(m int64) time.Duration { return time.Duration(0) },
+		defaultEngine:         PromqlEnginePrometheus,
 		gate:                  gate.New(nil, 4, gate.Queries),
 		defaultRangeQueryStep: time.Second,
 		queryRangeHist: promauto.With(prometheus.NewRegistry()).NewHistogram(prometheus.HistogramOpts{
@@ -638,18 +658,13 @@ func TestQueryExplainEndpoints(t *testing.T) {
 
 	now := time.Now()
 	timeout := 100 * time.Second
-	ef := NewQueryEngineFactory(promql.EngineOpts{
-		Logger:     nil,
-		Reg:        nil,
-		MaxSamples: 10000,
-		Timeout:    timeout,
-	}, nil, false)
 	api := &QueryAPI{
 		baseAPI: &baseAPI.BaseAPI{
 			Now: func() time.Time { return now },
 		},
-		queryableCreate:       query.NewQueryableCreator(nil, nil, newProxyStoreWithTSDBStore(db), 2, timeout),
-		engineFactory:         ef,
+		queryableCreate:       query.NewQueryableCreator(nil, nil, newProxyStoreWithTSDBStore(db), 2, timeout, dedup.AlgorithmPenalty),
+		remoteEndpointsCreate: emptyRemoteEndpointsCreate,
+		queryCreate:           queryFactory,
 		defaultEngine:         PromqlEnginePrometheus,
 		lookbackDeltaCreate:   func(m int64) time.Duration { return time.Duration(0) },
 		gate:                  gate.New(nil, 4, gate.Queries),
@@ -707,18 +722,13 @@ func TestQueryAnalyzeEndpoints(t *testing.T) {
 
 	now := time.Now()
 	timeout := 100 * time.Second
-	ef := NewQueryEngineFactory(promql.EngineOpts{
-		Logger:     nil,
-		Reg:        nil,
-		MaxSamples: 10000,
-		Timeout:    timeout,
-	}, nil, false)
 	api := &QueryAPI{
 		baseAPI: &baseAPI.BaseAPI{
 			Now: func() time.Time { return now },
 		},
-		queryableCreate:       query.NewQueryableCreator(nil, nil, newProxyStoreWithTSDBStore(db), 2, timeout),
-		engineFactory:         ef,
+		queryableCreate:       query.NewQueryableCreator(nil, nil, newProxyStoreWithTSDBStore(db), 2, timeout, dedup.AlgorithmPenalty),
+		remoteEndpointsCreate: emptyRemoteEndpointsCreate,
+		queryCreate:           queryFactory,
 		defaultEngine:         PromqlEnginePrometheus,
 		lookbackDeltaCreate:   func(m int64) time.Duration { return time.Duration(0) },
 		gate:                  gate.New(nil, 4, gate.Queries),
@@ -857,7 +867,7 @@ func TestMetadataEndpoints(t *testing.T) {
 		series = append(series, storage.NewListSeries(lbl, samples))
 	}
 
-	_, err := tsdb.CreateBlock(series, dir, chunkRange, log.NewNopLogger())
+	_, err := tsdb.CreateBlock(series, dir, chunkRange, promslog.NewNopLogger())
 	testutil.Ok(t, err)
 
 	opts := tsdb.DefaultOptions()
@@ -881,21 +891,16 @@ func TestMetadataEndpoints(t *testing.T) {
 
 	now := time.Now()
 	timeout := 100 * time.Second
-	ef := NewQueryEngineFactory(promql.EngineOpts{
-		Logger:     nil,
-		Reg:        nil,
-		MaxSamples: 10000,
-		Timeout:    timeout,
-	}, nil, false)
 	api := &QueryAPI{
 		baseAPI: &baseAPI.BaseAPI{
 			Now: func() time.Time { return now },
 		},
-		queryableCreate:     query.NewQueryableCreator(nil, nil, newProxyStoreWithTSDBStore(db), 2, timeout),
-		engineFactory:       ef,
-		defaultEngine:       PromqlEnginePrometheus,
-		lookbackDeltaCreate: func(m int64) time.Duration { return time.Duration(0) },
-		gate:                gate.New(nil, 4, gate.Queries),
+		queryableCreate:       query.NewQueryableCreator(nil, nil, newProxyStoreWithTSDBStore(db), 2, timeout, dedup.AlgorithmPenalty),
+		remoteEndpointsCreate: emptyRemoteEndpointsCreate,
+		queryCreate:           queryFactory,
+		defaultEngine:         PromqlEnginePrometheus,
+		lookbackDeltaCreate:   func(m int64) time.Duration { return time.Duration(0) },
+		gate:                  gate.New(nil, 4, gate.Queries),
 		queryRangeHist: promauto.With(prometheus.NewRegistry()).NewHistogram(prometheus.HistogramOpts{
 			Name: "query_range_hist",
 		}),
@@ -907,8 +912,9 @@ func TestMetadataEndpoints(t *testing.T) {
 		baseAPI: &baseAPI.BaseAPI{
 			Now: func() time.Time { return now },
 		},
-		queryableCreate:          query.NewQueryableCreator(nil, nil, newProxyStoreWithTSDBStore(db), 2, timeout),
-		engineFactory:            ef,
+		queryableCreate:          query.NewQueryableCreator(nil, nil, newProxyStoreWithTSDBStore(db), 2, timeout, dedup.AlgorithmPenalty),
+		remoteEndpointsCreate:    emptyRemoteEndpointsCreate,
+		queryCreate:              queryFactory,
 		defaultEngine:            PromqlEnginePrometheus,
 		lookbackDeltaCreate:      func(m int64) time.Duration { return time.Duration(0) },
 		gate:                     gate.New(nil, 4, gate.Queries),
@@ -1038,6 +1044,15 @@ func TestMetadataEndpoints(t *testing.T) {
 			},
 			response: []string{"__name__", "foo", "replica1"},
 		},
+		// With limit
+		{
+			endpoint: api.labelNames,
+			query: url.Values{
+				"match[]": []string{`test_metric_replica2`},
+				"limit":   []string{"2"},
+			},
+			response: []string{"__name__", "foo"},
+		},
 		{
 			endpoint: api.labelValues,
 			query: url.Values{
@@ -1057,6 +1072,18 @@ func TestMetadataEndpoints(t *testing.T) {
 				"name": "__name__",
 			},
 			response: []string{"test_metric1", "test_metric2", "test_metric_replica1", "test_metric_replica2"},
+		},
+		// With limit
+		{
+			endpoint: api.labelValues,
+			query: url.Values{
+				"match[]": []string{`{foo="bar"}`, `{foo="boo"}`},
+				"limit":   []string{"3"},
+			},
+			params: map[string]string{
+				"name": "__name__",
+			},
+			response: []string{"test_metric1", "test_metric2", "test_metric_replica1"},
 		},
 		// No matched series.
 		{
@@ -1356,6 +1383,32 @@ func TestMetadataEndpoints(t *testing.T) {
 			},
 			errType: baseAPI.ErrorBadData,
 			method:  http.MethodPost,
+		},
+		// With limit
+		{
+			endpoint: api.series,
+			query: url.Values{
+				"match[]": []string{`{replica="", foo=~"b.+", replica1=""}`},
+				"limit":   []string{"2"},
+			},
+			response: []labels.Labels{
+				labels.FromStrings("__name__", "test_metric1", "foo", "bar"),
+				labels.FromStrings("__name__", "test_metric1", "foo", "boo"),
+			},
+			method: http.MethodPost,
+		},
+		// Without limit
+		{
+			endpoint: api.series,
+			query: url.Values{
+				"match[]": []string{`{replica="", foo=~"b.+", replica1=""}`},
+			},
+			response: []labels.Labels{
+				labels.FromStrings("__name__", "test_metric1", "foo", "bar"),
+				labels.FromStrings("__name__", "test_metric1", "foo", "boo"),
+				labels.FromStrings("__name__", "test_metric2", "foo", "boo"),
+			},
+			method: http.MethodPost,
 		},
 	}
 
@@ -1675,6 +1728,16 @@ func TestParseStoreDebugMatchersParam(t *testing.T) {
 				labels.MustNewMatcher(labels.MatchEqual, "cluster", "test"),
 			}},
 		},
+		{
+			storeMatchers: `{__address__=~"localhost:.*"}`,
+			fail:          false,
+			result:        [][]*labels.Matcher{{labels.MustNewMatcher(labels.MatchRegexp, "__address__", "localhost:.*")}},
+		},
+		{
+			storeMatchers: `{__address__!~"localhost:.*"}`,
+			fail:          false,
+			result:        [][]*labels.Matcher{{labels.MustNewMatcher(labels.MatchNotRegexp, "__address__", "localhost:.*")}},
+		},
 	} {
 		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
 			api := QueryAPI{
@@ -1689,12 +1752,61 @@ func TestParseStoreDebugMatchersParam(t *testing.T) {
 
 			storeMatchers, err := api.parseStoreDebugMatchersParam(r)
 			if !tc.fail {
-				testutil.Equals(t, tc.result, storeMatchers)
+				testutil.Equals(t, len(tc.result), len(storeMatchers))
+				for i, m := range tc.result {
+					testutil.Equals(t, len(m), len(storeMatchers[i]))
+					for j, n := range m {
+						testutil.Equals(t, n.String(), storeMatchers[i][j].String())
+					}
+				}
 				testutil.Equals(t, (*baseAPI.ApiError)(nil), err)
 			} else {
 				testutil.NotOk(t, err)
 			}
+
+			// We don't care about results but checking for panic.
+			for _, matchers := range storeMatchers {
+				for _, matcher := range matchers {
+					_ = matcher.Matches("")
+				}
+			}
 		})
+	}
+}
+
+func TestParseLimitParam(t *testing.T) {
+	var tests = []struct {
+		input  string
+		fail   bool
+		result int
+	}{
+		{
+			input:  "",
+			fail:   false,
+			result: 0,
+		}, {
+			input: "abc",
+			fail:  true,
+		}, {
+			input:  "10",
+			fail:   false,
+			result: 10,
+		},
+	}
+
+	for _, test := range tests {
+		res, err := parseLimitParam(test.input)
+		if err != nil && !test.fail {
+			t.Errorf("Unexpected error for %q: %s", test.input, err)
+			continue
+		}
+		if err == nil && test.fail {
+			t.Errorf("Expected error for %q but got none", test.input)
+			continue
+		}
+		if !test.fail && res != test.result {
+			t.Errorf("Expected limit %v for input %q but got %v", test.result, test.input, res)
+		}
 	}
 }
 
@@ -2066,4 +2178,9 @@ func (s sample) FH() *histogram.FloatHistogram {
 
 func (s sample) Type() chunkenc.ValueType {
 	return chunkenc.ValFloat
+}
+
+func (s sample) Copy() chunks.Sample {
+	c := sample{t: s.t, f: s.f}
+	return c
 }

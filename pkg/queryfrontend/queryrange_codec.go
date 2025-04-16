@@ -16,13 +16,12 @@ import (
 
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/model/labels"
-	"github.com/prometheus/prometheus/promql/parser"
 	"github.com/weaveworks/common/httpgrpc"
 
 	"github.com/thanos-io/thanos/internal/cortex/querier/queryrange"
 	cortexutil "github.com/thanos-io/thanos/internal/cortex/util"
-
 	queryv1 "github.com/thanos-io/thanos/pkg/api/query"
+	"github.com/thanos-io/thanos/pkg/extpromql"
 	"github.com/thanos-io/thanos/pkg/store/storepb"
 )
 
@@ -137,6 +136,7 @@ func (c queryRangeCodec) DecodeRequest(_ context.Context, r *http.Request, forwa
 	}
 	result.Engine = r.FormValue(queryv1.EngineParam)
 	result.Path = r.URL.Path
+	result.Stats = r.FormValue(queryv1.Stats)
 
 	for _, value := range r.Header.Values(cacheControlHeader) {
 		if strings.Contains(value, noStoreValue) {
@@ -171,6 +171,7 @@ func (c queryRangeCodec) EncodeRequest(ctx context.Context, r queryrange.Request
 		queryv1.DedupParam:           []string{strconv.FormatBool(thanosReq.Dedup)},
 		queryv1.PartialResponseParam: []string{strconv.FormatBool(thanosReq.PartialResponse)},
 		queryv1.ReplicaLabelsParam:   thanosReq.ReplicaLabels,
+		queryv1.Stats:                []string{thanosReq.Stats},
 	}
 
 	if thanosReq.AutoDownsampling {
@@ -269,7 +270,7 @@ func parsePartialResponseParam(s string, defaultEnablePartialResponse bool) (boo
 func parseMatchersParam(ss url.Values, matcherParam string) ([][]*labels.Matcher, error) {
 	matchers := make([][]*labels.Matcher, 0, len(ss[matcherParam]))
 	for _, s := range ss[matcherParam] {
-		ms, err := parser.ParseMetricSelector(s)
+		ms, err := extpromql.ParseMetricSelector(s)
 		if err != nil {
 			return nil, httpgrpc.Errorf(http.StatusBadRequest, errCannotParse, matcherParam)
 		}
