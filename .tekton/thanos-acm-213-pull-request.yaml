@@ -34,7 +34,7 @@ spec:
   - name: path-context
     value: .
   - name: hermetic
-    value: true
+    value: "true"
   - name: prefetch-input
     value: '[{"path": ".", "type": "gomod"}, {"path": "promu/", "type": "gomod"}]'
   - name: build-source-image
@@ -490,7 +490,8 @@ spec:
       optional: true
     - name: netrc
       optional: true
-  taskRunTemplate: {}
+  taskRunTemplate:
+    serviceAccountName: build-pipeline-thanos-acm-213
   workspaces:
   - name: git-auth
     secret:
