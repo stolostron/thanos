@@ -10,7 +10,7 @@ COPY . .
 RUN cd promu && go build -mod=mod -o /cachi2/output/deps/gomod/bin/promu
 
 WORKDIR /workspace
-RUN go mod vendor && /cachi2/output/deps/gomod/bin/promu -c ".promu.prow.yaml" build -v --prefix /go/bin/
+RUN go mod vendor && /cachi2/output/deps/gomod/bin/promu -c ".promu.prow.yaml" build -v --cgo --prefix /go/bin/
 
 # -----------------------------------------------------------------------------
 
