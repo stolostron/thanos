@@ -3,8 +3,13 @@
     "github>konflux-ci/mintmaker//config/renovate/renovate.json"
   ],
   "baseBranches": ["main", "/release-\\d+\\.\\d+/"],
-  "schedule": ["on thursday at 10am"],
-  "updateNotScheduled": false,
   "autoApprove": true,
-  "updatePinnedDependencies": false
+  "updatePinnedDependencies": false,
+  "tekton": {
+    "automerge": true,
+    "automergeStrategy": "rebase",
+    "automergeType": "pr",
+    "enabled": true,
+    "platformAutomerge": true
+  }
 }
