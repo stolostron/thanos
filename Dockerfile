@@ -13,3 +13,4 @@ RUN adduser \
     chown thanos /bin/thanos
 USER 1001
 ENTRYPOINT [ "/bin/thanos" ]
+# test
