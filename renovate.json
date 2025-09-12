@@ -3,12 +3,4 @@
   "gomod": {
     "updatePinnedDependencies": false
   }
-  "autoApprove": true,
-  "tekton": {
-    "automerge": true,
-    "automergeStrategy": "rebase",
-    "automergeType": "pr",
-    "enabled": true,
-    "platformAutomerge": true
-  }
 }
