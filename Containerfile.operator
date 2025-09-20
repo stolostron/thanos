@@ -23,6 +23,7 @@ COPY --from=builder /go/bin/thanos /bin/thanos
 ENTRYPOINT [ "/bin/thanos" ]
 
 LABEL com.redhat.component="thanos" \
+  url="https://github.com/stolostron/thanos" \
   name="thanos" \
   summary="thanos" \
   io.openshift.expose-services="" \
