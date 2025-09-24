@@ -1,5 +1,8 @@
 {
-  "baseBranches": ["main", "/^release-\\d+\\.\\d+/"],
+  "baseBranchPatterns": [
+    "main",
+    "/^release-\\d+\\.\\d+/"
+  ],
   "gomod": {
     "updatePinnedDependencies": false
   }
