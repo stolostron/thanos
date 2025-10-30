@@ -15,7 +15,7 @@
     "@codemirror/search": "^0.19.2",
     "@codemirror/state": "^0.19.5",
     "@codemirror/view": "^0.19.15",
-    "@forevolve/bootstrap-dark": "^1.0.0",
+    "@forevolve/bootstrap-dark": "^4.0.0",
     "@fortawesome/fontawesome-svg-core": "^1.2.34",
     "@fortawesome/free-solid-svg-icons": "^5.15.2",
     "@fortawesome/react-fontawesome": "^0.1.14",
