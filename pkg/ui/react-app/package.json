@@ -46,7 +46,7 @@
     "tempusdominus-bootstrap-4": "^5.39.0",
     "tempusdominus-core": "^5.19.0",
     "use-media": "^1.4.0",
-    "use-query-params": "^1.1.9"
+    "use-query-params": "^2.0.0"
   },
   "scripts": {
     "start": "react-scripts start",
