@@ -1,6 +1,6 @@
 module github.com/thanos-io/thanos
 
-go 1.25.3
+go 1.21
 
 require (
 	cloud.google.com/go/storage v1.36.0 // indirect
