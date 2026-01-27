@@ -24,7 +24,8 @@ ENTRYPOINT [ "/bin/thanos" ]
 
 LABEL com.redhat.component="thanos" \
   url="https://github.com/stolostron/thanos" \
-  name="thanos" \
+  name="rhacm2/thanos-rhel9" \
+  cpe="cpe:/a:redhat:acm:2.15::el9" \
   summary="thanos" \
   io.openshift.expose-services="" \
   io.openshift.tags="data,images" \
