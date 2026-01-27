@@ -23,7 +23,8 @@ COPY --from=builder /go/bin/thanos /bin/thanos
 ENTRYPOINT [ "/bin/thanos" ]
 
 LABEL com.redhat.component="thanos" \
-  name="thanos" \
+  name="rhacm2/thanos-rhel9" \
+  cpe="cpe:/a:redhat:acm:2.14::el9" \
   summary="thanos" \
   io.openshift.expose-services="" \
   io.openshift.tags="data,images" \
