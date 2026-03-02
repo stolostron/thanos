@@ -44,9 +44,9 @@ import (
 )
 
 const (
-	defaultPrometheusVersion   = "v0.37.0"
-	defaultAlertmanagerVersion = "v0.20.0"
-	defaultMinioVersion        = "RELEASE.2022-07-30T05-21-40Z"
+	defaultPrometheusVersion   = "v0.38.0"
+	defaultAlertmanagerVersion = "v0.25.0"
+	defaultMinioVersion        = "RELEASE.2023-01-12T02-06-16Z"
 
 	// Space delimited list of versions.
 	promPathsEnvVar       = "THANOS_TEST_PROMETHEUS_PATHS"
