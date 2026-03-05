@@ -602,15 +602,6 @@ func runRule(
 			}
 		}
 
-		if len(conf.EnableFeatures) > 0 {
-			for _, feature := range conf.EnableFeatures {
-				if feature == promqlExperimentalFunctions {
-					parser.EnableExperimentalFunctions = true
-					level.Info(logger).Log("msg", "Experimental PromQL functions enabled.", "option", promqlExperimentalFunctions)
-				}
-			}
-		}
-
 		// Run rule evaluation and alert notifications.
 		notifyFunc := func(ctx context.Context, expr string, alerts ...*rules.Alert) {
 			res := make([]*notifier.Alert, 0, len(alerts))
