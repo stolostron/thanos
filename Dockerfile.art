@@ -1,0 +1,35 @@
+# Copyright Contributors to the Open Cluster Management project
+# Licensed under the Apache License 2.0
+
+FROM registry-proxy.engineering.redhat.com/rh-osbs/openshift-golang-builder:v1.25.8 AS builder
+
+WORKDIR /workspace
+COPY . .
+ 
+
+RUN cd promu && go build -mod=mod -o /cachi2/output/deps/gomod/bin/promu
+
+WORKDIR /workspace
+RUN go mod vendor && CGO_ENABLED=1 GOEXPERIMENT=strictfipsruntime /cachi2/output/deps/gomod/bin/promu -c ".promu.prow.yaml" build -v --cgo --prefix /go/bin/
+
+# -----------------------------------------------------------------------------
+
+FROM registry-proxy.engineering.redhat.com/ubi9/ubi-minimal:latest
+
+LABEL maintainer="The ACM Thanos maintainers"
+
+COPY --from=builder /go/bin/thanos /bin/thanos
+
+ENTRYPOINT [ "/bin/thanos" ]
+
+LABEL com.redhat.component="thanos" \
+  url="https://github.com/stolostron/thanos" \
+  name="rhacm2/thanos-rhel9" \
+  cpe="cpe:/a:redhat:acm:2.16::el9" \
+  summary="thanos" \
+  io.openshift.expose-services="" \
+  io.openshift.tags="data,images" \
+  io.k8s.display-name="thanos" \
+  maintainer="" \
+  description="thanos" \
+  io.k8s.description="thanos"
