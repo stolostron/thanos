@@ -6,7 +6,7 @@ include Makefile
 build: ## Builds Thanos binary using `promu`.
 build: check-git deps $(PROMU)
 	@echo ">> building Thanos binary in $(PREFIX)"
-	@$(PROMU) -c ".promu.prow.yaml" build -v --cgo --prefix $(PREFIX)
+	@$(PROMU) -c ".promu.prow.yaml" build -v --prefix $(PREFIX)
 
 GIT_BRANCH=$(shell $(GIT) rev-parse --abbrev-ref HEAD)
 .PHONY: crossbuild
@@ -15,9 +15,9 @@ ifeq ($(GIT_BRANCH), main)
 crossbuild: | $(PROMU)
 	@echo ">> crossbuilding all binaries"
 	# we only care about below two for the main branch
-	@$(PROMU) -c ".promu.prow.yaml" crossbuild -v --cgo -p linux/amd64
+	@$(PROMU) -c ".promu.prow.yaml" crossbuild -v -p linux/amd64
 else
 crossbuild: | $(PROMU)
 	@echo ">> crossbuilding all binaries"
-	@$(PROMU) -c ".promu.prow.yaml"  crossbuild -v --cgo
+	@$(PROMU) -c ".promu.prow.yaml"  crossbuild -v
 endif
