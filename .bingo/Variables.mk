@@ -1,4 +1,4 @@
-# Auto generated binary variables helper managed by https://github.com/bwplotka/bingo v0.8. DO NOT EDIT.
+# Auto generated binary variables helper managed by https://github.com/bwplotka/bingo v0.9. DO NOT EDIT.
 # All tools are designed to be build inside $GOBIN.
 BINGO_DIR := $(dir $(lastword $(MAKEFILE_LIST)))
 GOPATH ?= $(shell go env GOPATH)
@@ -95,11 +95,11 @@ $(MDOX): $(BINGO_DIR)/mdox.mod
 	@echo "(re)installing $(GOBIN)/mdox-v0.9.1-0.20220713110358-25b9abcf90a0"
 	@cd $(BINGO_DIR) && GOWORK=off $(GO) build -mod=mod -modfile=mdox.mod -o=$(GOBIN)/mdox-v0.9.1-0.20220713110358-25b9abcf90a0 "github.com/bwplotka/mdox"
 
-MINIO := $(GOBIN)/minio-v0.0.0-20220720015624-ce8397f7d944
+MINIO := $(GOBIN)/minio-v0.0.0-20241014163537-3da7c9cce3de
 $(MINIO): $(BINGO_DIR)/minio.mod
 	@# Install binary/ries using Go 1.14+ build command. This is using bwplotka/bingo-controlled, separate go module with pinned dependencies.
-	@echo "(re)installing $(GOBIN)/minio-v0.0.0-20220720015624-ce8397f7d944"
-	@cd $(BINGO_DIR) && GOWORK=off $(GO) build -mod=mod -modfile=minio.mod -o=$(GOBIN)/minio-v0.0.0-20220720015624-ce8397f7d944 "github.com/minio/minio"
+	@echo "(re)installing $(GOBIN)/minio-v0.0.0-20241014163537-3da7c9cce3de"
+	@cd $(BINGO_DIR) && GOWORK=off $(GO) build -mod=mod -modfile=minio.mod -o=$(GOBIN)/minio-v0.0.0-20241014163537-3da7c9cce3de "github.com/minio/minio"
 
 PROMDOC := $(GOBIN)/promdoc-v0.8.0
 $(PROMDOC): $(BINGO_DIR)/promdoc.mod
