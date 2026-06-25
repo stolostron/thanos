@@ -7,6 +7,7 @@ import (
 	"context"
 	"path"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -25,7 +26,7 @@ func TestMain(m *testing.M) {
 }
 
 // testRulesAgainstExamples tests against alerts.yaml and rules.yaml examples.
-func testRulesAgainstExamples(t *testing.T, dir string, server rulespb.RulesServer) {
+func testRulesAgainstExamples(t *testing.T, dir string, server rulespb.RulesServer, removeEmptyGroups bool) {
 	t.Helper()
 
 	// We don't test internals, just if groups are expected.
@@ -158,9 +159,10 @@ func testRulesAgainstExamples(t *testing.T, dir string, server rulespb.RulesServ
 			}
 			testutil.Ok(t, err)
 
-			expectedForType := expected
+			expectedForType := make([]*rulespb.RuleGroup, len(expected))
+			copy(expectedForType, expected)
+
 			if tcase.requestedType != rulespb.RulesRequest_ALL {
-				expectedForType = make([]*rulespb.RuleGroup, len(expected))
 				for i, g := range expected {
 					expectedForType[i] = proto.Clone(g).(*rulespb.RuleGroup)
 					expectedForType[i].Rules = nil
@@ -178,6 +180,12 @@ func testRulesAgainstExamples(t *testing.T, dir string, server rulespb.RulesServ
 						}
 					}
 				}
+			}
+
+			if removeEmptyGroups {
+				expectedForType = slices.DeleteFunc(expectedForType, func(group *rulespb.RuleGroup) bool {
+					return len(group.Rules) == 0
+				})
 			}
 
 			got := groups.Groups
