@@ -12,7 +12,7 @@ RUN go mod vendor && /cachi2/output/deps/gomod/bin/promu -c ".promu.prow.yaml" b
 
 # -----------------------------------------------------------------------------
 
-FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
+FROM registry.access.redhat.com/hi/core-runtime:latest-openssl-fips
 
 LABEL maintainer="The ACM Thanos maintainers"
 
