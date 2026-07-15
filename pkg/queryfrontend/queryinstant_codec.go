@@ -251,7 +251,7 @@ func (c queryInstantCodec) EncodeResponse(ctx context.Context, res queryrange.Re
 func (c queryInstantCodec) DecodeResponse(ctx context.Context, r *http.Response, req queryrange.Request) (queryrange.Response, error) {
 	if r.StatusCode/100 != 2 {
 		body, _ := io.ReadAll(r.Body)
-		return nil, httpgrpc.Errorf(r.StatusCode, string(body))
+		return nil, httpgrpc.Errorf(r.StatusCode, "%s", string(body))
 	}
 	log, ctx := spanlogger.New(ctx, "ParseQueryInstantResponse") //nolint:ineffassign,staticcheck
 	defer log.Finish()
