@@ -228,7 +228,7 @@ func (s *storeRef) Addr() (string, bool) {
 }
 
 func (s *storeRef) close() {
-	runutil.CloseWithLogOnErr(s.logger, s.cc, fmt.Sprintf("store %v connection close", s.addr))
+	runutil.CloseWithLogOnErr(s.logger, s.cc, "store %v connection close", s.addr)
 }
 
 // Update updates the store set. It fetches current list of store specs from function and updates the fresh metadata
