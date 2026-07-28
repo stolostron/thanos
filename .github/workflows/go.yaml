@@ -3,7 +3,7 @@ name: go
 on:
   push:
     branches:
-      - release-2.14
+      - release-5.0
   pull_request:
 
 permissions:  
