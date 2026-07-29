@@ -31,8 +31,8 @@ import (
 	"github.com/thanos-io/objstore/client"
 	objstoretracing "github.com/thanos-io/objstore/tracing/opentracing"
 	"google.golang.org/grpc"
-	"gopkg.in/yaml.v2"
 
+	"github.com/thanos-io/thanos/pkg/block"
 	"github.com/thanos-io/thanos/pkg/block/metadata"
 	"github.com/thanos-io/thanos/pkg/component"
 	"github.com/thanos-io/thanos/pkg/compressutil"
@@ -53,6 +53,7 @@ import (
 	"github.com/thanos-io/thanos/pkg/store"
 	storecache "github.com/thanos-io/thanos/pkg/store/cache"
 	"github.com/thanos-io/thanos/pkg/store/labelpb"
+	"github.com/thanos-io/thanos/pkg/store/storepb"
 	"github.com/thanos-io/thanos/pkg/tenancy"
 	"github.com/thanos-io/thanos/pkg/tls"
 )
@@ -153,7 +154,7 @@ func runReceive(
 		}
 	}
 
-	rwTLSConfig, err := tls.NewServerConfig(log.With(logger, "protocol", "HTTP"), conf.rwServerCert, conf.rwServerKey, conf.rwServerClientCA, conf.rwServerTlsMinVersion)
+	rwTLSConfig, err := tls.NewServerConfig(log.With(logger, "protocol", "HTTP"), conf.rwServerCert, conf.rwServerKey, conf.rwServerClientCA, conf.rwServerTlsMinVersion, conf.rwServerTlsCiphers, conf.rwServerTlsCurves)
 	if err != nil {
 		return err
 	}
@@ -162,16 +163,17 @@ func runReceive(
 		logger,
 		reg,
 		tracer,
-		conf.rwClientSecure,
-		conf.rwClientSkipVerify,
-		conf.rwClientCert,
-		conf.rwClientKey,
-		conf.rwClientServerCA,
-		conf.rwClientServerName,
 	)
 	if err != nil {
 		return err
 	}
+
+	tlsDialOpts, err := extgrpc.StoreClientTLSCredentials(logger, conf.rwClientSecure, conf.rwClientSkipVerify, conf.rwClientCert, conf.rwClientKey, conf.rwClientServerCA, conf.rwClientServerName, conf.rwClientTlsMinVersion)
+	if err != nil {
+		return err
+	}
+	dialOpts = append(dialOpts, tlsDialOpts)
+
 	if conf.compression != compressionNone {
 		dialOpts = append(dialOpts, grpc.WithDefaultCallOptions(grpc.UseCompressor(conf.compression)))
 	}
@@ -192,13 +194,6 @@ func runReceive(
 	upload := len(confContentYaml) > 0
 	if enableIngestion {
 		if upload {
-			if tsdbOpts.MinBlockDuration != tsdbOpts.MaxBlockDuration {
-				if !conf.ignoreBlockSize {
-					return errors.Errorf("found that TSDB Max time is %d and Min time is %d. "+
-						"Compaction needs to be disabled (tsdb.min-block-duration = tsdb.max-block-duration)", tsdbOpts.MaxBlockDuration, tsdbOpts.MinBlockDuration)
-				}
-				level.Warn(logger).Log("msg", "flag to ignore min/max block duration flags differing is being used. If the upload of a 2h block fails and a tsdb compaction happens that block may be missing from your Thanos bucket storage.")
-			}
 			// The background shipper continuously scans the data directory and uploads
 			// new blocks to object storage service.
 			bkt, err = client.NewBucket(logger, confContentYaml, comp.String(), nil)
@@ -211,18 +206,26 @@ func runReceive(
 		}
 	}
 
-	// Create TSDB for the default tenant.
-	if err := createDefautTenantTSDB(logger, conf.dataDir, conf.defaultTenantID); err != nil {
-		return errors.Wrapf(err, "create default tenant tsdb in %v", conf.dataDir)
+	var dataDir *os.Root
+	if enableIngestion {
+		if err := os.MkdirAll(conf.dataDir, 0o755); err != nil {
+			return errors.Wrapf(err, "create data dir in %v", conf.dataDir)
+		}
+
+		dataDir, err = os.OpenRoot(conf.dataDir)
+		if err != nil {
+			return errors.Wrap(err, "open storage dir")
+		}
+
+		// Create TSDB for the default tenant.
+		if err := createDefautTenantTSDB(logger, conf.defaultTenantID, dataDir); err != nil {
+			return errors.Wrapf(err, "create default tenant tsdb in %v", conf.dataDir)
+		}
 	}
 
-	relabelContentYaml, err := conf.relabelConfigPath.Content()
+	relabelConfig, err := conf.relabelCfg.RelabelConfig(nil)
 	if err != nil {
-		return errors.Wrap(err, "get content of relabel configuration")
-	}
-	var relabelConfig []*relabel.Config
-	if err := yaml.Unmarshal(relabelContentYaml, &relabelConfig); err != nil {
-		return errors.Wrap(err, "parse relabel configuration")
+		return errors.Wrap(err, "get relabel configuration")
 	}
 
 	var cache = storecache.NoopMatchersCache
@@ -237,7 +240,7 @@ func runReceive(
 	multiTSDBOptions = append(multiTSDBOptions, receive.WithUploadConcurrency(conf.uploadConcurrency))
 
 	dbs := receive.NewMultiTSDB(
-		conf.dataDir,
+		dataDir,
 		logger,
 		reg,
 		tsdbOpts,
@@ -353,7 +356,7 @@ func runReceive(
 
 	level.Debug(logger).Log("msg", "setting up gRPC server")
 	{
-		tlsCfg, err := tls.NewServerConfig(log.With(logger, "protocol", "gRPC"), conf.grpcConfig.tlsSrvCert, conf.grpcConfig.tlsSrvKey, conf.grpcConfig.tlsSrvClientCA, conf.grpcConfig.tlsMinVersion)
+		tlsCfg, err := tls.NewServerConfig(log.With(logger, "protocol", "gRPC"), conf.grpcConfig.tlsSrvCert, conf.grpcConfig.tlsSrvKey, conf.grpcConfig.tlsSrvClientCA, conf.grpcConfig.tlsMinVersion, conf.grpcConfig.tlsCiphers, conf.grpcConfig.tlsCurves)
 		if err != nil {
 			return errors.Wrap(err, "setup gRPC server")
 		}
@@ -407,18 +410,48 @@ func runReceive(
 		statusSrv := status.NewServer(
 			component.Receive.String(),
 			status.WithTSDBStatisticsGetter(
-				status.TSDBStatisticsGetterFunc(func(limit int, tenantID string) (map[string]tsdb.Stats, error) {
+				status.TSDBStatisticsGetterFunc(func(limit int, matchers []storepb.LabelMatcher) (map[string]tsdb.Stats, error) {
 					if !httpProbe.IsReady() {
 						return nil, errors.New("not ready")
 					}
 
+					promMatchers, err := storepb.MatchersToPromMatchers(matchers...)
+					if err != nil {
+						return nil, errors.Wrap(err, "failed to convert matchers")
+					}
+
+					// Build the list of tenant IDs if the request matches
+					// against exact tenant values only.
 					var tenantIDs []string
-					if tenantID != "" {
-						tenantIDs = append(tenantIDs, tenantID)
+					for _, promMatcher := range promMatchers {
+						if promMatcher.Name != conf.tenantLabelName {
+							continue
+						}
+
+						if promMatcher.Type != labels.MatchEqual {
+							tenantIDs = nil
+							break
+						}
+
+						tenantIDs = append(tenantIDs, promMatcher.Value)
 					}
 
 					stats := map[string]tsdb.Stats{}
+					// Get stats for all tenants and filter based on external labels matching.
 					for _, ts := range dbs.TenantStats(limit, model.MetricNameLabel, tenantIDs...) {
+						extLabels := labels.NewBuilder(lset).Set(conf.tenantLabelName, ts.Tenant).Labels()
+
+						var skip bool
+						for _, matcher := range promMatchers {
+							if !matcher.Matches(extLabels.Get(matcher.Name)) {
+								skip = true
+								break
+							}
+						}
+						if skip {
+							continue
+						}
+
 						stats[ts.Tenant] = *ts.Stats
 					}
 
@@ -699,10 +732,7 @@ func startTSDBAndUpload(g *run.Group,
 			} else {
 				level.Info(logger).Log("msg", "storage is flushed successfully")
 			}
-			if err := dbs.Close(); err != nil {
-				level.Error(logger).Log("err", err, "msg", "failed to close storage")
-				return
-			}
+			dbs.Close()
 			level.Info(logger).Log("msg", "storage is closed")
 		}()
 
@@ -759,7 +789,7 @@ func startTSDBAndUpload(g *run.Group,
 			level.Debug(logger).Log("msg", "upload phase starting")
 			start := time.Now()
 
-			uploaded, err := dbs.Sync(ctx)
+			uploaded, err := dbs.SyncAllTenants(ctx)
 			if err != nil {
 				level.Warn(logger).Log("msg", "upload failed", "elapsed", time.Since(start), "err", err)
 				return err
@@ -787,7 +817,7 @@ func startTSDBAndUpload(g *run.Group,
 					<-uploadC // Closed by storage routine when it's done.
 					level.Info(logger).Log("msg", "uploading the final cut block before exiting")
 					ctx, cancel := context.WithCancel(context.Background())
-					uploaded, err := dbs.Sync(ctx)
+					uploaded, err := dbs.SyncAllTenants(ctx)
 					if err != nil {
 						cancel()
 						level.Error(logger).Log("msg", "the final upload failed", "err", err)
@@ -799,10 +829,6 @@ func startTSDBAndUpload(g *run.Group,
 
 				defer close(uploadDone)
 
-				// Run the uploader in a loop.
-				tick := time.NewTicker(30 * time.Second)
-				defer tick.Stop()
-
 				for {
 					select {
 					case <-ctx.Done():
@@ -813,10 +839,6 @@ func startTSDBAndUpload(g *run.Group,
 							level.Error(logger).Log("msg", "on demand upload failed", "err", err)
 						}
 						uploadDone <- struct{}{}
-					case <-tick.C:
-						if err := upload(ctx); err != nil {
-							level.Error(logger).Log("msg", "recurring upload failed", "err", err)
-						}
 					}
 				}
 			}, func(error) {
@@ -828,23 +850,16 @@ func startTSDBAndUpload(g *run.Group,
 	return nil
 }
 
-func createDefautTenantTSDB(logger log.Logger, dataDir, defaultTenantID string) error {
-	defaultTenantDataDir := path.Join(dataDir, defaultTenantID)
-
-	if _, err := os.Stat(defaultTenantDataDir); !os.IsNotExist(err) {
+func createDefautTenantTSDB(logger log.Logger, defaultTenantID string, dataDir *os.Root) error {
+	if _, err := dataDir.Stat(defaultTenantID); !os.IsNotExist(err) {
 		level.Info(logger).Log("msg", "default tenant data dir already present, will not create")
-		return nil
-	}
-
-	if _, err := os.Stat(dataDir); os.IsNotExist(err) {
-		level.Info(logger).Log("msg", "no existing storage found, not creating default tenant data dir")
 		return nil
 	}
 
 	level.Info(logger).Log("msg", "default tenant data dir not found, creating", "defaultTenantID", defaultTenantID)
 
-	if err := os.MkdirAll(defaultTenantDataDir, 0750); err != nil {
-		return errors.Wrapf(err, "create default tenant data dir: %v", defaultTenantDataDir)
+	if err := dataDir.MkdirAll(defaultTenantID, 0750); err != nil {
+		return errors.Wrapf(err, "create default tenant data dir: %v", path.Join(dataDir.Name(), defaultTenantID))
 	}
 
 	return nil
@@ -869,6 +884,9 @@ type receiveConfig struct {
 	rwClientServerName    string
 	rwClientSkipVerify    bool
 	rwServerTlsMinVersion string
+	rwClientTlsMinVersion string
+	rwServerTlsCiphers    []string
+	rwServerTlsCurves     []string
 
 	dataDir   string
 	labelStrs []string
@@ -914,13 +932,12 @@ type receiveConfig struct {
 
 	hashFunc string
 
-	ignoreBlockSize       bool
 	allowOutOfOrderUpload bool
 	skipCorruptedBlocks   bool
 	uploadConcurrency     int
 
-	reqLogConfig      *extflag.PathOrContent
-	relabelConfigPath *extflag.PathOrContent
+	reqLogConfig *extflag.PathOrContent
+	relabelCfg   *relabelCfg
 
 	writeLimitsConfig       *extflag.PathOrContent
 	storeRateLimits         store.SeriesSelectLimits
@@ -940,6 +957,18 @@ type receiveConfig struct {
 	otlpResourceAttributes                   []string
 }
 
+type relabelCfg struct {
+	*extflag.PathOrContent
+}
+
+func (r *relabelCfg) RelabelConfig(supportedActions map[relabel.Action]struct{}) ([]*relabel.Config, error) {
+	relabelContentYaml, err := r.Content()
+	if err != nil {
+		return []*relabel.Config{}, errors.Wrap(err, "get content of relabel configuration")
+	}
+	return block.ParseRelabelConfig(relabelContentYaml, supportedActions)
+}
+
 func (rc *receiveConfig) registerFlag(cmd extkingpin.FlagClause) {
 	rc.httpBindAddr, rc.httpGracePeriod, rc.httpTLSConfig = extkingpin.RegisterHTTPFlags(cmd)
 	rc.grpcConfig.registerFlag(cmd)
@@ -954,8 +983,14 @@ func (rc *receiveConfig) registerFlag(cmd extkingpin.FlagClause) {
 
 	cmd.Flag("remote-write.server-tls-client-ca", "TLS CA to verify clients against. If no client CA is specified, there is no client verification on server side. (tls.NoClientCert)").Default("").StringVar(&rc.rwServerClientCA)
 
-	cmd.Flag("remote-write.server-tls-min-version", "TLS version for the gRPC server, leave blank to default to TLS 1.3, allow values: [\"1.0\", \"1.1\", \"1.2\", \"1.3\"]").Default("1.3").StringVar(&rc.rwServerTlsMinVersion)
+	cmd.Flag("remote-write.server-tls-min-version", "TLS version for the HTTP server, leave blank to default to TLS 1.3, Allowed values: [\"1.0\", \"1.1\", \"1.2\", \"1.3\"]").Default("1.3").EnumVar(&rc.rwServerTlsMinVersion, tls.AllowedTLSVersions...)
 
+	cmd.Flag("remote-write.server-tls-ciphers", "TLS cipher suites for the HTTP server (repeatable). If not specified, the default Go cipher suites are used. See https://pkg.go.dev/crypto/tls#pkg-constants for valid values.").StringsVar(&rc.rwServerTlsCiphers)
+
+	cmd.Flag("remote-write.server-tls-curves", "TLS curves for the HTTP server (repeatable). If not specified, the default Go curves are used. Valid values: CurveP256, CurveP384, CurveP521, X25519.").StringsVar(&rc.rwServerTlsCurves)
+
+	// For historical reasons Thanos Receive uses its own `--remote-write.client-tls-` options
+	// flags for gRPC client TLS configuration, separate to the --grpc-client-tls- options in cmd/thanos/config.go.
 	cmd.Flag("remote-write.client-tls-cert", "TLS Certificates to use to identify this client to the server.").Default("").StringVar(&rc.rwClientCert)
 
 	cmd.Flag("remote-write.client-tls-key", "TLS Key for the client's certificate.").Default("").StringVar(&rc.rwClientKey)
@@ -967,6 +1002,8 @@ func (rc *receiveConfig) registerFlag(cmd extkingpin.FlagClause) {
 	cmd.Flag("remote-write.client-tls-ca", "TLS CA Certificates to use to verify servers.").Default("").StringVar(&rc.rwClientServerCA)
 
 	cmd.Flag("remote-write.client-server-name", "Server name to verify the hostname on the returned TLS certificates. See https://tools.ietf.org/html/rfc4366#section-3.1").Default("").StringVar(&rc.rwClientServerName)
+
+	cmd.Flag("remote-write.client-tls-min-version", "TLS version for the gRPC client, leave blank to default to TLS 1.3, Allowed values: [\"1.0\", \"1.1\", \"1.2\", \"1.3\"]").Default("1.3").EnumVar(&rc.rwClientTlsMinVersion, tls.AllowedTLSVersions...)
 
 	cmd.Flag("tsdb.path", "Data directory of TSDB.").
 		Default("./data").StringVar(&rc.dataDir)
@@ -1024,7 +1061,7 @@ func (rc *receiveConfig) registerFlag(cmd extkingpin.FlagClause) {
 
 	rc.maxBackoff = extkingpin.ModelDuration(cmd.Flag("receive-forward-max-backoff", "Maximum backoff for each forward fan-out request").Default("5s").Hidden())
 
-	rc.relabelConfigPath = extflag.RegisterPathOrContent(cmd, "receive.relabel-config", "YAML file that contains relabeling configuration.", extflag.WithEnvSubstitution())
+	rc.relabelCfg = &relabelCfg{extflag.RegisterPathOrContent(cmd, "receive.relabel-config", "YAML file that contains relabeling configuration.", extflag.WithEnvSubstitution())}
 
 	rc.tsdbMinBlockDuration = extkingpin.ModelDuration(cmd.Flag("tsdb.min-block-duration", "Min duration for local TSDB blocks").Default("2h").Hidden())
 
@@ -1080,8 +1117,6 @@ func (rc *receiveConfig) registerFlag(cmd extkingpin.FlagClause) {
 
 	cmd.Flag("hash-func", "Specify which hash function to use when calculating the hashes of produced files. If no function has been specified, it does not happen. This permits avoiding downloading some files twice albeit at some performance cost. Possible values are: \"\", \"SHA256\".").
 		Default("").EnumVar(&rc.hashFunc, "SHA256", "")
-
-	cmd.Flag("shipper.ignore-unequal-block-size", "If true receive will not require min and max block size flags to be set to the same value. Only use this if you want to keep long retention and compaction enabled, as in the worst case it can result in ~2h data loss for your Thanos bucket storage.").Default("false").Hidden().BoolVar(&rc.ignoreBlockSize)
 
 	cmd.Flag("shipper.allow-out-of-order-uploads",
 		"If true, shipper will skip failed block uploads in the given iteration and retry later. This means that some newer blocks might be uploaded sooner than older blocks."+

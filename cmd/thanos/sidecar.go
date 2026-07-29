@@ -9,6 +9,8 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -23,6 +25,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/prometheus/tsdb"
 
 	"github.com/thanos-io/objstore"
 	"github.com/thanos-io/objstore/client"
@@ -47,8 +50,10 @@ import (
 	grpcserver "github.com/thanos-io/thanos/pkg/server/grpc"
 	httpserver "github.com/thanos-io/thanos/pkg/server/http"
 	"github.com/thanos-io/thanos/pkg/shipper"
+	"github.com/thanos-io/thanos/pkg/status"
 	"github.com/thanos-io/thanos/pkg/store"
 	"github.com/thanos-io/thanos/pkg/store/labelpb"
+	"github.com/thanos-io/thanos/pkg/store/storepb"
 	"github.com/thanos-io/thanos/pkg/targets"
 	"github.com/thanos-io/thanos/pkg/tls"
 )
@@ -189,7 +194,7 @@ func runSidecar(
 					iterCtx, iterCancel := context.WithTimeout(context.Background(), conf.prometheus.getConfigTimeout)
 					defer iterCancel()
 
-					if err := validatePrometheus(iterCtx, m.client, logger, conf.shipper.ignoreBlockSize, conf.shipper.metaFileName, m); err != nil {
+					if err := validatePrometheus(iterCtx, m.client, logger, &conf, m); err != nil {
 						level.Warn(logger).Log(
 							"msg", "failed to validate prometheus flags. Is Prometheus running? Retrying",
 							"err", err,
@@ -316,7 +321,7 @@ func runSidecar(
 		}
 
 		tlsCfg, err := tls.NewServerConfig(log.With(logger, "protocol", "gRPC"),
-			conf.grpc.tlsSrvCert, conf.grpc.tlsSrvKey, conf.grpc.tlsSrvClientCA, conf.grpc.tlsMinVersion)
+			conf.grpc.tlsSrvCert, conf.grpc.tlsSrvKey, conf.grpc.tlsSrvClientCA, conf.grpc.tlsMinVersion, conf.grpc.tlsCiphers, conf.grpc.tlsCurves)
 		if err != nil {
 			return errors.Wrap(err, "setup gRPC server")
 		}
@@ -345,6 +350,43 @@ func runSidecar(
 			info.WithRulesInfoFunc(),
 			info.WithTargetsInfoFunc(),
 			info.WithMetricMetadataInfoFunc(),
+			info.WithStatusInfoFunc(),
+		)
+
+		statusSrv := status.NewServer(
+			component.Sidecar.String(),
+			status.WithTSDBStatisticsGetter(
+				status.TSDBStatisticsGetterFunc(func(limit int, matchers []storepb.LabelMatcher) (map[string]tsdb.Stats, error) {
+					if !httpProbe.IsReady() {
+						return nil, errors.New("not ready")
+					}
+
+					ctx, cancel := context.WithTimeout(context.Background(), conf.prometheus.getConfigTimeout)
+					defer cancel()
+
+					// Check if external labels match the provided matchers.
+					extLabels := m.Labels()
+					promMatchers, err := storepb.MatchersToPromMatchers(matchers...)
+					if err != nil {
+						return nil, errors.Wrap(err, "failed to convert matchers")
+					}
+					for _, matcher := range promMatchers {
+						if !matcher.Matches(extLabels.Get(matcher.Name)) {
+							// External labels don't match, return empty result.
+							return nil, nil
+						}
+					}
+
+					statsEntry, err := c.TSDBStatusInGRPC(ctx, conf.prometheus.url, limit)
+					if err != nil {
+						return nil, errors.Wrap(err, "failed to get tsdb status from prometheus")
+					}
+
+					return map[string]tsdb.Stats{
+						"": statsEntry.ToTSDBStats(limit),
+					}, nil
+				}),
+			),
 		)
 
 		storeServer := store.NewLimitedStoreServer(store.NewInstrumentedStoreServer(reg, promStore), reg, conf.storeRateLimits)
@@ -355,6 +397,7 @@ func runSidecar(
 			grpcserver.WithServer(meta.RegisterMetadataServer(meta.NewPrometheus(conf.prometheus.url, c))),
 			grpcserver.WithServer(exemplars.RegisterExemplarsServer(exemplarSrv)),
 			grpcserver.WithServer(info.RegisterInfoServer(infoSrv)),
+			grpcserver.WithServer(status.RegisterStatusServer(statusSrv)),
 			grpcserver.WithListen(conf.grpc.bindAddress),
 			grpcserver.WithGracePeriod(conf.grpc.gracePeriod),
 			grpcserver.WithMaxConnAge(conf.grpc.maxConnectionAge),
@@ -414,9 +457,15 @@ func runSidecar(
 				return errors.Wrapf(err, "aborting as no external labels found after waiting %s", promReadyTimeout)
 			}
 
+			dataDir, err := os.OpenRoot(conf.tsdb.path)
+			if err != nil {
+				return errors.Wrap(err, "opening tsdb directory")
+			}
+			defer runutil.CloseWithLogOnErr(logger, dataDir, "tsdb directory")
+
 			s := shipper.New(
 				bkt,
-				conf.tsdb.path,
+				dataDir,
 				shipper.WithLogger(logger),
 				shipper.WithRegisterer(reg),
 				shipper.WithSource(metadata.SidecarSource),
@@ -444,7 +493,7 @@ func runSidecar(
 	return nil
 }
 
-func validatePrometheus(ctx context.Context, client *promclient.Client, logger log.Logger, ignoreBlockSize bool, metaFileName string, m *promMetadata) error {
+func validatePrometheus(ctx context.Context, client *promclient.Client, logger log.Logger, conf *sidecarConfig, m *promMetadata) error {
 	var (
 		flagErr error
 		flags   promclient.Flags
@@ -465,17 +514,20 @@ func validatePrometheus(ctx context.Context, client *promclient.Client, logger l
 		return nil
 	}
 
-	if flags.TSDBDelayCompact != "" && flags.TSDBDelayCompact != metaFileName {
-		return errors.Errorf(
-			"found that Prometheus and Thanos use different paths for tracking block uploads. "+
-				"Prometheus uses --storage.tsdb.delay-compact-file.path=%s while Thanos uses --shipper.meta-file-name=%s, they must both use the same path.",
-			flags.TSDBDelayCompact, metaFileName,
-		)
+	if flags.TSDBDelayCompact != "" {
+		thanosMetaPath := filepath.Join(conf.tsdb.path, conf.shipper.metaFileName)
+		if filepath.Clean(flags.TSDBDelayCompact) != filepath.Clean(thanosMetaPath) {
+			return errors.Errorf(
+				"found that Prometheus and Thanos use different paths for tracking block uploads. "+
+					"Prometheus uses --storage.tsdb.delay-compact-file.path=%s while Thanos will write to %s, they must both use the same path.",
+				flags.TSDBDelayCompact, thanosMetaPath,
+			)
+		}
 	}
 
 	// Check if compaction is disabled.
 	if flags.TSDBMinTime != flags.TSDBMaxTime && flags.TSDBDelayCompact == "" {
-		if !ignoreBlockSize {
+		if !conf.shipper.ignoreBlockSize {
 			return errors.Errorf("found that TSDB Max time is %s and Min time is %s. "+
 				"Compaction needs to be disabled (storage.tsdb.min-block-duration = storage.tsdb.max-block-duration)", flags.TSDBMaxTime, flags.TSDBMinTime)
 		}
@@ -516,13 +568,13 @@ func (s *promMetadata) UpdateLabels(ctx context.Context) error {
 }
 
 func (s *promMetadata) UpdateTimestamps(ctx context.Context) error {
-	s.mtx.Lock()
-	defer s.mtx.Unlock()
-
 	mint, err := s.client.LowestTimestamp(ctx, s.promURL)
 	if err != nil {
 		return err
 	}
+
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
 
 	s.mint = max(s.limitMinTime.PrometheusTimestamp(), mint)
 	s.maxt = math.MaxInt64

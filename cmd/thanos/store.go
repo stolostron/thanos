@@ -69,6 +69,7 @@ const (
 type storeConfig struct {
 	indexCacheConfigs             extflag.PathOrContent
 	objStoreConfig                extflag.PathOrContent
+	parquetStoreConfig            extflag.PathOrContent
 	dataDir                       string
 	cacheIndexHeader              bool
 	grpcConfig                    grpcConfig
@@ -88,8 +89,7 @@ type storeConfig struct {
 	blockSyncConcurrency          int
 	blockMetaFetchConcurrency     int
 	filterConf                    *store.FilterConfig
-	selectorRelabelConf           extflag.PathOrContent
-	advertiseCompatibilityLabel   bool
+	selectorRelabel               *relabelCfg
 	consistencyDelay              commonmodel.Duration
 	ignoreDeletionMarksDelay      commonmodel.Duration
 	disableWeb                    bool
@@ -148,6 +148,7 @@ func (sc *storeConfig) registerFlag(cmd extkingpin.FlagClause) {
 	sc.component = component.Store
 
 	sc.objStoreConfig = *extkingpin.RegisterCommonObjStoreFlags(cmd, "", true)
+	sc.parquetStoreConfig = *extkingpin.RegisterCommonObjStoreFlags(cmd, "-parquet", false)
 
 	cmd.Flag("sync-block-duration", "Repeat interval for syncing the blocks between local and remote view.").
 		Default("15m").DurationVar(&sc.syncInterval)
@@ -179,10 +180,7 @@ func (sc *storeConfig) registerFlag(cmd extkingpin.FlagClause) {
 	cmd.Flag("max-time", "End of time range limit to serve. Thanos Store will serve only blocks, which happened earlier than this value. Option can be a constant time in RFC3339 format or time duration relative to current time, such as -1d or 2h45m. Valid duration units are ms, s, m, h, d, w, y.").
 		Default("9999-12-31T23:59:59Z").SetValue(&sc.filterConf.MaxTime)
 
-	cmd.Flag("debug.advertise-compatibility-label", "If true, Store Gateway in addition to other labels, will advertise special \"@thanos_compatibility_store_type=store\" label set. This makes store Gateway compatible with Querier before 0.8.0").
-		Hidden().Default("true").BoolVar(&sc.advertiseCompatibilityLabel)
-
-	sc.selectorRelabelConf = *extkingpin.RegisterSelectorRelabelFlags(cmd)
+	sc.selectorRelabel = &relabelCfg{PathOrContent: extkingpin.RegisterSelectorRelabelFlags(cmd)}
 
 	cmd.Flag("store.index-header-posting-offsets-in-mem-sampling", "Controls what is the ratio of postings offsets store will hold in memory. "+
 		"Larger value will keep less offsets, which will increase CPU cycles needed for query touching those postings. It's meant for setups that want low baseline memory pressure and where less traffic is expected. "+
@@ -321,6 +319,11 @@ func runStore(
 	if err != nil {
 		return err
 	}
+	parquetBktConfigYaml, err := conf.parquetStoreConfig.Content()
+	if err != nil {
+		return err
+	}
+
 	customBktConfig := exthttp.DefaultCustomBucketConfig()
 	if err := yaml.Unmarshal(confContentYaml, &customBktConfig); err != nil {
 		return errors.Wrap(err, "parsing config YAML file")
@@ -345,12 +348,7 @@ func runStore(
 		}
 	}
 
-	relabelContentYaml, err := conf.selectorRelabelConf.Content()
-	if err != nil {
-		return errors.Wrap(err, "get content of relabel configuration")
-	}
-
-	relabelConfig, err := block.ParseRelabelConfig(relabelContentYaml, block.SelectorSupportedRelabelActions)
+	relabelConfig, err := conf.selectorRelabel.RelabelConfig(block.SelectorSupportedRelabelActions)
 	if err != nil {
 		return err
 	}
@@ -393,16 +391,19 @@ func runStore(
 		return errors.Errorf("unknown sync strategy %s", conf.blockListStrategy)
 	}
 	ignoreDeletionMarkFilter := block.NewIgnoreDeletionMarkFilter(logger, insBkt, time.Duration(conf.ignoreDeletionMarksDelay), conf.blockMetaFetchConcurrency)
-	filters := []block.MetadataFilter{
-		block.NewTimePartitionMetaFilter(conf.filterConf.MinTime, conf.filterConf.MaxTime),
-		block.NewLabelShardedMetaFilter(relabelConfig),
-		block.NewConsistencyDelayMetaFilter(logger, time.Duration(conf.consistencyDelay), extprom.WrapRegistererWithPrefix("thanos_", reg)),
-		ignoreDeletionMarkFilter,
-		block.NewDeduplicateFilter(conf.blockMetaFetchConcurrency),
-		block.NewParquetMigratedMetaFilter(logger),
+	parquetConvertedBlocksFilter, err := block.NewIgnoreParquetConvertedBlocksFilter(logger, parquetBktConfigYaml, conf.blockMetaFetchConcurrency, extprom.WrapRegistererWithPrefix("thanos_", reg))
+	if err != nil {
+		return errors.Wrap(err, "create parquet converted blocks filter")
 	}
-
-	metaFetcher, err := block.NewMetaFetcher(logger, conf.blockMetaFetchConcurrency, insBkt, blockLister, dataDir, extprom.WrapRegistererWithPrefix("thanos_", reg), filters)
+	metaFetcher, err := block.NewMetaFetcher(logger, conf.blockMetaFetchConcurrency, insBkt, blockLister, dataDir, extprom.WrapRegistererWithPrefix("thanos_", reg),
+		[]block.MetadataFilter{
+			parquetConvertedBlocksFilter,
+			block.NewTimePartitionMetaFilter(conf.filterConf.MinTime, conf.filterConf.MaxTime),
+			block.NewLabelShardedMetaFilter(relabelConfig),
+			block.NewConsistencyDelayMetaFilter(logger, time.Duration(conf.consistencyDelay), extprom.WrapRegistererWithPrefix("thanos_", reg)),
+			ignoreDeletionMarkFilter,
+			block.NewDeduplicateFilter(conf.blockMetaFetchConcurrency),
+		})
 	if err != nil {
 		return errors.Wrap(err, "meta fetcher")
 	}
@@ -471,7 +472,6 @@ func runStore(
 		store.NewBytesLimiterFactory(conf.maxDownloadedBytes),
 		store.NewGapBasedPartitioner(store.PartitionerMaxGapSize),
 		conf.blockSyncConcurrency,
-		conf.advertiseCompatibilityLabel,
 		conf.postingOffsetsInMemSampling,
 		false,
 		conf.lazyIndexReaderEnabled,
@@ -545,7 +545,7 @@ func runStore(
 
 	// Start query (proxy) gRPC StoreAPI.
 	{
-		tlsCfg, err := tls.NewServerConfig(log.With(logger, "protocol", "gRPC"), conf.grpcConfig.tlsSrvCert, conf.grpcConfig.tlsSrvKey, conf.grpcConfig.tlsSrvClientCA, conf.grpcConfig.tlsMinVersion)
+		tlsCfg, err := tls.NewServerConfig(log.With(logger, "protocol", "gRPC"), conf.grpcConfig.tlsSrvCert, conf.grpcConfig.tlsSrvKey, conf.grpcConfig.tlsSrvClientCA, conf.grpcConfig.tlsMinVersion, conf.grpcConfig.tlsCiphers, conf.grpcConfig.tlsCurves)
 		if err != nil {
 			return errors.Wrap(err, "setup gRPC server")
 		}

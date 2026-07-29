@@ -57,7 +57,10 @@ func NewRequest(wr WriteRequest) (*Request, error) {
 		return nil, err
 	}
 
-	strings, _ := symbolsPool.Get(offsets.Len())
+	strings, err := symbolsPool.Get(offsets.Len())
+	if err != nil {
+		return nil, err
+	}
 	start := uint32(0)
 	for i := 0; i < offsets.Len(); i++ {
 		end := offsets.At(i)

@@ -28,12 +28,7 @@ import (
 	"github.com/thanos-io/thanos/pkg/store/labelpb"
 	"github.com/thanos-io/thanos/pkg/store/storepb"
 	"github.com/thanos-io/thanos/pkg/store/storepb/prompb"
-	"github.com/thanos-io/thanos/pkg/testutil/custom"
 )
-
-func TestMain(m *testing.M) {
-	custom.TolerantVerifyLeakMain(m)
-}
 
 func TestAddingExternalLabelsForTenants(t *testing.T) {
 	if testing.
@@ -218,7 +213,7 @@ func TestAddingExternalLabelsForTenants(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			m := initializeMultiTSDB(t.TempDir())
+			m := initializeMultiTSDB(t, t.TempDir())
 
 			err := m.SetHashringConfig(tc.cfg)
 			require.NoError(t, err)
@@ -248,8 +243,7 @@ func TestAddingExternalLabelsForTenants(t *testing.T) {
 			err = m.Flush()
 			require.NoError(t, err)
 
-			err = m.Close()
-			require.NoError(t, err)
+			m.Close()
 		})
 	}
 }
@@ -302,7 +296,7 @@ func TestLabelSetsOfTenantsWhenAddingTenants(t *testing.T) {
 	}
 
 	t.Run("Adding tenants", func(t *testing.T) {
-		m := initializeMultiTSDB(t.TempDir())
+		m := initializeMultiTSDB(t, t.TempDir())
 
 		err := m.SetHashringConfig(initialConfig)
 		require.NoError(t, err)
@@ -360,8 +354,7 @@ func TestLabelSetsOfTenantsWhenAddingTenants(t *testing.T) {
 		err = m.Flush()
 		require.NoError(t, err)
 
-		err = m.Close()
-		require.NoError(t, err)
+		m.Close()
 	})
 }
 
@@ -547,7 +540,7 @@ func TestLabelSetsOfTenantsWhenChangingLabels(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			m := initializeMultiTSDB(t.TempDir())
+			m := initializeMultiTSDB(t, t.TempDir())
 
 			err := m.SetHashringConfig(initialConfig)
 			require.NoError(t, err)
@@ -596,8 +589,7 @@ func TestLabelSetsOfTenantsWhenChangingLabels(t *testing.T) {
 			err = m.Flush()
 			require.NoError(t, err)
 
-			err = m.Close()
-			require.NoError(t, err)
+			m.Close()
 		})
 	}
 }
@@ -722,7 +714,7 @@ func TestAddingLabelsWhenTenantAppearsInMultipleHashrings(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			m := initializeMultiTSDB(t.TempDir())
+			m := initializeMultiTSDB(t, t.TempDir())
 
 			err := m.SetHashringConfig(initialConfig)
 			require.NoError(t, err)
@@ -771,8 +763,7 @@ func TestAddingLabelsWhenTenantAppearsInMultipleHashrings(t *testing.T) {
 			err = m.Flush()
 			require.NoError(t, err)
 
-			err = m.Close()
-			require.NoError(t, err)
+			m.Close()
 		})
 	}
 }
@@ -796,7 +787,7 @@ func TestReceiverLabelsNotOverwrittenByExternalLabels(t *testing.T) {
 	}
 
 	t.Run("Receiver's labels not overwritten by external labels", func(t *testing.T) {
-		m := initializeMultiTSDB(t.TempDir())
+		m := initializeMultiTSDB(t, t.TempDir())
 
 		err := m.SetHashringConfig(cfg)
 		require.NoError(t, err)
@@ -826,15 +817,14 @@ func TestReceiverLabelsNotOverwrittenByExternalLabels(t *testing.T) {
 		err = m.Flush()
 		require.NoError(t, err)
 
-		err = m.Close()
-		require.NoError(t, err)
+		m.Close()
 	})
 }
 
-func initializeMultiTSDB(dir string) *MultiTSDB {
+func initializeMultiTSDB(t testing.TB, dir string) *MultiTSDB {
 	var bucket objstore.Bucket
 
-	m := NewMultiTSDB(dir, log.NewNopLogger(), prometheus.NewRegistry(),
+	m := NewMultiTSDB(openTestRoot(t, dir), log.NewNopLogger(), prometheus.NewRegistry(),
 		&tsdb.Options{
 			MinBlockDuration:  (2 * time.Hour).Milliseconds(),
 			MaxBlockDuration:  (2 * time.Hour).Milliseconds(),
@@ -909,7 +899,7 @@ func TestSendRemoteWriteMarksPeerUnavailableOnAnyError(t *testing.T) {
 
 			cl.sendUnavailable = sendUnavailable
 
-			h.sendRemoteWrite(ctx, "tenant-a", endpointReplica{
+			h.sendWrite(ctx, "tenant-a", endpointReplica{
 				endpoint: endpoint,
 				replica:  0,
 			}, trackedSeries{
@@ -976,6 +966,11 @@ func (s *stubAsyncClient) RemoteWriteAsync(ctx context.Context, in *storepb.Writ
 	responses <- newWriteResponse(seriesIDs, err, er)
 
 	cb(err)
+}
+
+func (s *stubAsyncClient) TryRemoteWriteAsync(ctx context.Context, in *storepb.WriteRequest, er endpointReplica, seriesIDs []int, responses chan writeResponse, cb func(error)) bool {
+	s.RemoteWriteAsync(ctx, in, er, seriesIDs, responses, cb)
+	return true
 }
 
 func (s *stubAsyncClient) Close() error { return nil }
