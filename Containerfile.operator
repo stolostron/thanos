@@ -20,6 +20,8 @@ LABEL maintainer="The ACM Thanos maintainers"
 
 COPY --from=builder /go/bin/thanos /bin/thanos
 
+USER 1001
+
 ENTRYPOINT [ "/bin/thanos" ]
 
 LABEL com.redhat.component="thanos" \
