@@ -16,4 +16,6 @@ COPY --from=builder /go/bin/thanos /bin/thanos
 
 RUN microdnf update -y && microdnf clean all
 
+USER 1001
+
 ENTRYPOINT [ "/bin/thanos" ]
