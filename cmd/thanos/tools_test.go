@@ -46,10 +46,17 @@ func Test_CheckRules_Glob(t *testing.T) {
 	files = &[]string{"./testdata/rules-files/*.yamlaaa"}
 	testutil.NotOk(t, checkRulesFiles(logger, files), "expected err for file %s", files)
 
-	// Unreadble path
+	// Unreadable path — skip when chmod is not effective (root bypasses permissions,
+	// non-owner in container can't chmod, read-only FS, etc.)
 	files = &[]string{"./testdata/rules-files/unreadable_valid.yaml"}
 	filename := (*files)[0]
-	testutil.Ok(t, os.Chmod(filename, 0000), "failed to change file permissions of %s to 0000", filename)
+	if err := os.Chmod(filename, 0000); err != nil {
+		t.Skipf("skipping unreadable-file test: chmod failed: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(filename, 0777) })
+	if os.Getuid() == 0 {
+		t.Skip("skipping unreadable-file test: root bypasses file permissions")
+	}
 	testutil.NotOk(t, checkRulesFiles(logger, files), "expected err for file %s", files)
-	testutil.Ok(t, os.Chmod(filename, 0777), "failed to change file permissions of %s to 0777", filename)
+	testutil.Ok(t, os.Chmod(filename, 0777), "failed to restore file permissions of %s", filename)
 }
