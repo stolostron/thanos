@@ -70,6 +70,8 @@ func (c AggrChunk) Encoding() chunkenc.Encoding {
 
 func (c AggrChunk) Compact() {}
 
+func (c *AggrChunk) Reset(stream []byte) { *c = AggrChunk(stream) }
+
 // Get returns the sub-chunk for the given aggregate type if it exists.
 func (c AggrChunk) Get(t AggrType) (chunkenc.Chunk, error) {
 	b := c[:]

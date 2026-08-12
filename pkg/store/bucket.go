@@ -3657,7 +3657,8 @@ func (b rawChunk) Encoding() chunkenc.Encoding {
 func (b rawChunk) Bytes() []byte {
 	return b[1:]
 }
-func (b rawChunk) Compact() {}
+func (b rawChunk) Compact()      {}
+func (b rawChunk) Reset([]byte)  {}
 
 func (b rawChunk) Iterator(_ chunkenc.Iterator) chunkenc.Iterator {
 	panic("invalid call")
