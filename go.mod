@@ -276,6 +276,10 @@ replace (
 	// Required by Cortex https://github.com/cortexproject/cortex/pull/3051.
 	github.com/bradfitz/gomemcache => github.com/themihai/gomemcache v0.0.0-20180902122335-24332e2d58ab
 
+	// Patched fork based on v0.51.1-20240325 with fix cherry-picked from upstream prometheus/prometheus#18587.
+	// Ref: CVE-2026-42151 (GHSA-wg65-39gg-5wfj)
+	github.com/prometheus/prometheus => github.com/stolostron/prometheus v0.0.0-20260809205240-e1bde220dac8
+
 	github.com/vimeo/galaxycache => github.com/thanos-community/galaxycache v0.0.0-20211122094458-3a32041a1f1e
 
 	// Override due to https://github.com/weaveworks/common/issues/239
