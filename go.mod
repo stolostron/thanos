@@ -287,6 +287,10 @@ replace (
 	// Required by Cortex https://github.com/cortexproject/cortex/pull/3051.
 	github.com/bradfitz/gomemcache => github.com/themihai/gomemcache v0.0.0-20180902122335-24332e2d58ab
 
+	// Patched fork based on v0.55.1 with fix cherry-picked from upstream prometheus/prometheus#18587.
+	// Ref: CVE-2026-42151 (GHSA-wg65-39gg-5wfj)
+	github.com/prometheus/prometheus => github.com/stolostron/prometheus v0.0.0-20260805153507-383a8f4f8330
+
 	// Pin kuberesolver/v5 to support new grpc version. Need to upgrade kuberesolver version on weaveworks/common.
 	github.com/sercand/kuberesolver/v4 => github.com/sercand/kuberesolver/v5 v5.1.1
 
