@@ -14,7 +14,7 @@ RUN go mod vendor && /cachi2/output/deps/gomod/bin/promu -c ".promu.prow.yaml" b
 
 # -----------------------------------------------------------------------------
 
-FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
+FROM registry.redhat.io/ubi9/ubi-minimal-pqc:latest
 
 LABEL maintainer="The ACM Thanos maintainers"
 
