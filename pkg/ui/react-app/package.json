@@ -91,7 +91,7 @@
     "eslint-config-prettier": "^8.3.0",
     "eslint-config-react-app": "^6.0.0",
     "eslint-plugin-prettier": "^4.0.0",
-    "jest-fetch-mock": "^3.0.3",
+    "jest-fetch-mock": "^4.0.0",
     "mutationobserver-shim": "^0.3.7",
     "prettier": "^2.3.2",
     "react-scripts": "^4.0.3",
