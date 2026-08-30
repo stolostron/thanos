@@ -40,7 +40,7 @@
     "react-resize-detector": "^4.2.1",
     "react-select": "^4.1.0",
     "react-test-renderer": "^16.14.0",
-    "reactstrap": "^8.9.0",
+    "reactstrap": "^9.0.0",
     "sanitize-html": "^2.3.2",
     "sass": "^1.32.13",
     "tempusdominus-bootstrap-4": "^5.39.0",
