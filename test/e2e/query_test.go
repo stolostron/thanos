@@ -665,7 +665,7 @@ func TestQueryStoreMetrics(t *testing.T) {
 	t.Cleanup(cancel)
 
 	bucket := "store-gw-test"
-	minio := e2edb.NewMinio(e, "thanos-minio", bucket, e2edb.WithMinioTLS())
+	minio := e2edb.NewMinio(e, "thanos-minio", bucket, e2edb.WithMinioTLS(), e2edb.WithImage(e2ethanos.DefaultMinioImage))
 	testutil.Ok(t, e2e.StartAndWaitReady(minio))
 
 	l := log.NewLogfmtLogger(os.Stdout)
@@ -853,7 +853,7 @@ func TestQueryStoreDedup(t *testing.T) {
 	t.Cleanup(cancel)
 
 	bucket := "store-gw-dedup-test"
-	minio := e2edb.NewMinio(e, "thanos-minio", bucket, e2edb.WithMinioTLS())
+	minio := e2edb.NewMinio(e, "thanos-minio", bucket, e2edb.WithMinioTLS(), e2edb.WithImage(e2ethanos.DefaultMinioImage))
 	testutil.Ok(t, e2e.StartAndWaitReady(minio))
 
 	l := log.NewLogfmtLogger(os.Stdout)
@@ -2084,7 +2084,7 @@ func TestQueryTenancyEnforcement(t *testing.T) {
 	t.Cleanup(cancel)
 
 	bucket := "store-gw-test"
-	minio := e2edb.NewMinio(e, "thanos-minio", bucket, e2edb.WithMinioTLS())
+	minio := e2edb.NewMinio(e, "thanos-minio", bucket, e2edb.WithMinioTLS(), e2edb.WithImage(e2ethanos.DefaultMinioImage))
 	testutil.Ok(t, e2e.StartAndWaitReady(minio))
 
 	l := log.NewLogfmtLogger(os.Stdout)
