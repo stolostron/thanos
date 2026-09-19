@@ -74,7 +74,7 @@
     "@types/sinon": "^7.5.0",
     "@typescript-eslint/eslint-plugin": "2.x",
     "@typescript-eslint/parser": "2.x",
-    "babel-eslint": "10.x",
+    "@babel/eslint-parser": "7.x",
     "enzyme": "^3.10.0",
     "enzyme-adapter-react-16": "^1.15.1",
     "eslint": "6.x",
