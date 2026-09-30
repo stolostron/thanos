@@ -21,7 +21,7 @@ COPY --from=builder /go/bin/thanos /bin/thanos
 
 ENTRYPOINT [ "/bin/thanos" ]
 
-LABEL com.redhat.component="thanos-receive-controller" \
+LABEL com.redhat.component="thanos" \
   name="thanos" \
   summary="thanos" \
   io.openshift.expose-services="" \
