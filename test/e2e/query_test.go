@@ -362,7 +362,9 @@ func TestQueryWithExtendedFunctions(t *testing.T) {
 }
 
 func TestQueryExternalPrefixWithoutReverseProxy(t *testing.T) {
-	t.Parallel()
+	// Not t.Parallel(): uses chromedp, which has a hardcoded 20s websocket
+	// connect timeout (chromedp/chromedp#1536). Running alongside other
+	// parallel tests in this shard can starve it under CI load.
 
 	e, err := e2e.NewDockerEnvironment("route-prefix")
 	testutil.Ok(t, err)
@@ -378,7 +380,9 @@ func TestQueryExternalPrefixWithoutReverseProxy(t *testing.T) {
 }
 
 func TestQueryExternalPrefix(t *testing.T) {
-	t.Parallel()
+	// Not t.Parallel(): uses chromedp, which has a hardcoded 20s websocket
+	// connect timeout (chromedp/chromedp#1536). Running alongside other
+	// parallel tests in this shard can starve it under CI load.
 
 	e, err := e2e.NewDockerEnvironment("external-prefix")
 	testutil.Ok(t, err)
@@ -399,7 +403,9 @@ func TestQueryExternalPrefix(t *testing.T) {
 }
 
 func TestQueryExternalPrefixAndRoutePrefix(t *testing.T) {
-	t.Parallel()
+	// Not t.Parallel(): uses chromedp, which has a hardcoded 20s websocket
+	// connect timeout (chromedp/chromedp#1536). Running alongside other
+	// parallel tests in this shard can starve it under CI load.
 
 	e, err := e2e.NewDockerEnvironment("prefix")
 	testutil.Ok(t, err)
@@ -764,7 +770,7 @@ func TestQueryStoreMetrics(t *testing.T) {
 	t.Cleanup(cancel)
 
 	bucket := "store-gw-test"
-	minio := e2edb.NewMinio(e, "thanos-minio", bucket, e2edb.WithMinioTLS())
+	minio := e2edb.NewMinio(e, "thanos-minio", bucket, e2edb.WithMinioTLS(), e2edb.WithImage(e2ethanos.DefaultMinioImage))
 	testutil.Ok(t, e2e.StartAndWaitReady(minio))
 
 	l := log.NewLogfmtLogger(os.Stdout)
@@ -952,7 +958,7 @@ func TestSidecarStorePushdown(t *testing.T) {
 	testutil.Ok(t, e2e.StartAndWaitReady(prom1, sidecar1))
 
 	const bucket = "store-gateway-test-sidecar-pushdown"
-	m := e2edb.NewMinio(e, "thanos-minio", bucket, e2edb.WithMinioTLS())
+	m := e2edb.NewMinio(e, "thanos-minio", bucket, e2edb.WithMinioTLS(), e2edb.WithImage(e2ethanos.DefaultMinioImage))
 	testutil.Ok(t, e2e.StartAndWaitReady(m))
 
 	dir := filepath.Join(e.SharedDir(), "tmp")
@@ -1070,7 +1076,7 @@ func TestQueryStoreDedup(t *testing.T) {
 	t.Cleanup(cancel)
 
 	bucket := "store-gw-dedup-test"
-	minio := e2edb.NewMinio(e, "thanos-minio", bucket, e2edb.WithMinioTLS())
+	minio := e2edb.NewMinio(e, "thanos-minio", bucket, e2edb.WithMinioTLS(), e2edb.WithImage(e2ethanos.DefaultMinioImage))
 	testutil.Ok(t, e2e.StartAndWaitReady(minio))
 
 	l := log.NewLogfmtLogger(os.Stdout)
@@ -1516,46 +1522,50 @@ func TestSidecarQueryEvaluation(t *testing.T) {
 	}
 }
 
-// An emptyCtx is never canceled, has no values, and has no deadline. It is not
-// struct{}, since vars of this type must have distinct addresses.
-type emptyCtx int
+var chromedpAllocator context.Context
 
-func (*emptyCtx) Deadline() (deadline time.Time, ok bool) {
-	return
-}
+func TestMain(m *testing.M) {
+	execAlloc, execCancel := chromedp.NewExecAllocator(
+		context.Background(),
+	)
+	chromedpAllocator = execAlloc
 
-func (*emptyCtx) Done() <-chan struct{} {
-	return nil
-}
-
-func (*emptyCtx) Err() error {
-	return nil
-}
-
-func (*emptyCtx) Value(key any) any {
-	return nil
-}
-
-func (e *emptyCtx) String() string {
-	return "Context"
+	rc := m.Run()
+	execCancel()
+	os.Exit(rc)
 }
 
 func checkNetworkRequests(t *testing.T, addr string) {
-	ctx, cancel := chromedp.NewContext(new(emptyCtx))
+	opts := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.Flag("headless", true),
+		chromedp.Flag("no-sandbox", true),
+		chromedp.Flag("disable-gpu", true),
+	)
+	allocCtx, cancel := chromedp.NewExecAllocator(chromedpAllocator, opts...)
+	defer cancel()
+
+	ctx, cancel := chromedp.NewContext(allocCtx)
 	t.Cleanup(cancel)
+
+	// make sure browser is already started
+	err := chromedp.Run(ctx)
+	testutil.Ok(t, err)
 
 	testutil.Ok(t, runutil.Retry(1*time.Minute, ctx.Done(), func() error {
 		var networkErrors []string
+		var newCtx context.Context
+		newCtx, newCancel := chromedp.NewContext(ctx)
+		t.Cleanup(newCancel)
 
 		// Listen for failed network requests and push them to an array.
-		chromedp.ListenTarget(ctx, func(ev interface{}) {
+		chromedp.ListenTarget(newCtx, func(ev interface{}) {
 			switch ev := ev.(type) {
 			case *network.EventLoadingFailed:
 				networkErrors = append(networkErrors, ev.ErrorText)
 			}
 		})
 
-		err := chromedp.Run(ctx,
+		err := chromedp.Run(newCtx,
 			network.Enable(),
 			chromedp.Navigate(addr),
 			chromedp.WaitVisible(`body`),
@@ -2513,7 +2523,7 @@ func TestQueryTenancyEnforcement(t *testing.T) {
 	t.Cleanup(cancel)
 
 	bucket := "store-gw-test"
-	minio := e2edb.NewMinio(e, "thanos-minio", bucket, e2edb.WithMinioTLS())
+	minio := e2edb.NewMinio(e, "thanos-minio", bucket, e2edb.WithMinioTLS(), e2edb.WithImage(e2ethanos.DefaultMinioImage))
 	testutil.Ok(t, e2e.StartAndWaitReady(minio))
 
 	l := log.NewLogfmtLogger(os.Stdout)
