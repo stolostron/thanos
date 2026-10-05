@@ -767,6 +767,16 @@ test_metric{a="2", b="2"} 1`)
 	})
 
 	t.Run("multitenant_active_series_limiting", func(t *testing.T) {
+		// Flaky: an async, non-blocking TSDB-init race in pkg/receive/multitsdb.go's
+		// getOrLoadTenant lets more than the test's hard-coded tolerance of one
+		// "TSDB not ready" write failure occur, which prevents
+		// thanos_receive_head_series_limited_requests_total from ever reaching
+		// its expected value and hangs the test until the 10m global timeout.
+		// Fixed upstream by thanos-io/thanos@d54b40c (#8562) and
+		// thanos-io/thanos@a7f04c22 (#8564, fixes thanos-io/thanos#8446),
+		// neither of which is present on this branch yet.
+		t.Skip("flaky test: TSDB not ready race, see thanos-io/thanos#8446")
+
 		/*
 			The multitenant_active_series_limiting suite configures a hashring with
 			two avalanche writers and dedicated meta-monitoring.
@@ -872,7 +882,7 @@ test_metric{a="2", b="2"} 1`)
 				ValueInterval:  "3600",
 
 				RemoteURL:           e2ethanos.RemoteWriteEndpoint(ingestor1.InternalEndpoint("remote-write")),
-				RemoteWriteInterval: "30s",
+				RemoteWriteInterval: "5s",
 				RemoteBatchSize:     "5",
 				RemoteRequestCount:  "5",
 
@@ -902,7 +912,7 @@ test_metric{a="2", b="2"} 1`)
 
 		// Here, 3/5 requests are failed due to limiting, as one request fails due to TSDB readiness and we ingest one initial request.
 		// 3 limited requests belong to the exceed-tenant.
-		testutil.Ok(t, i1Runnable.WaitSumMetricsWithOptions(e2emon.Equals(3), []string{"thanos_receive_head_series_limited_requests_total"}, e2emon.WithWaitBackoff(&backoff.Config{Min: 1 * time.Second, Max: 10 * time.Minute, MaxRetries: 200}), e2emon.WaitMissingMetrics()))
+		testutil.Ok(t, i1Runnable.WaitSumMetricsWithOptions(e2emon.Equals(3), []string{"thanos_receive_head_series_limited_requests_total"}, e2emon.WithWaitBackoff(&backoff.Config{Min: 1 * time.Second, Max: 30 * time.Second, MaxRetries: 200}), e2emon.WaitMissingMetrics()))
 
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		t.Cleanup(cancel)
