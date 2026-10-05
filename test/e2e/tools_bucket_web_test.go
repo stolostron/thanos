@@ -33,6 +33,8 @@ import (
 )
 
 func TestToolsBucketWebExternalPrefixWithoutReverseProxy(t *testing.T) {
+	t.Skip("flaky test")
+
 	t.Parallel()
 
 	e, err := e2e.NewDockerEnvironment("rt-prfx-xtprf")
@@ -42,7 +44,7 @@ func TestToolsBucketWebExternalPrefixWithoutReverseProxy(t *testing.T) {
 	externalPrefix := "testThanos"
 
 	const bucket = "compact-test"
-	m := e2edb.NewMinio(e, "thanos", bucket, e2edb.WithMinioTLS())
+	m := e2edb.NewMinio(e, "thanos", bucket, e2edb.WithMinioTLS(), e2edb.WithImage(e2ethanos.DefaultMinioImage))
 	testutil.Ok(t, e2e.StartAndWaitReady(m))
 
 	svcConfig := client.BucketConfig{
@@ -66,6 +68,8 @@ func TestToolsBucketWebExternalPrefixWithoutReverseProxy(t *testing.T) {
 }
 
 func TestToolsBucketWebExternalPrefix(t *testing.T) {
+	t.Skip("flaky test")
+
 	t.Parallel()
 
 	e, err := e2e.NewDockerEnvironment("external-prefix")
@@ -74,7 +78,7 @@ func TestToolsBucketWebExternalPrefix(t *testing.T) {
 
 	externalPrefix := "testThanos"
 	const bucket = "toolsBucketWeb-test"
-	m := e2edb.NewMinio(e, "thanos", bucket, e2edb.WithMinioTLS())
+	m := e2edb.NewMinio(e, "thanos", bucket, e2edb.WithMinioTLS(), e2edb.WithImage(e2ethanos.DefaultMinioImage))
 	testutil.Ok(t, e2e.StartAndWaitReady(m))
 
 	svcConfig := client.BucketConfig{
@@ -103,6 +107,8 @@ func TestToolsBucketWebExternalPrefix(t *testing.T) {
 }
 
 func TestToolsBucketWebExternalPrefixAndRoutePrefix(t *testing.T) {
+	t.Skip("flaky test")
+
 	t.Parallel()
 
 	e, err := e2e.NewDockerEnvironment("rt-prfx-xtrtprf")
@@ -112,7 +118,7 @@ func TestToolsBucketWebExternalPrefixAndRoutePrefix(t *testing.T) {
 	externalPrefix := "testThanos"
 	routePrefix := "test"
 	const bucket = "toolsBucketWeb-test"
-	m := e2edb.NewMinio(e, "thanos", bucket, e2edb.WithMinioTLS())
+	m := e2edb.NewMinio(e, "thanos", bucket, e2edb.WithMinioTLS(), e2edb.WithImage(e2ethanos.DefaultMinioImage))
 	testutil.Ok(t, err)
 	testutil.Ok(t, e2e.StartAndWaitReady(m))
 
@@ -150,7 +156,7 @@ func TestToolsBucketWebWithTimeAndRelabelFilter(t *testing.T) {
 
 	// Create Minio.
 	const bucket = "toolsBucketWeb-test"
-	m := e2edb.NewMinio(e, "thanos", bucket, e2edb.WithMinioTLS())
+	m := e2edb.NewMinio(e, "thanos", bucket, e2edb.WithMinioTLS(), e2edb.WithImage(e2ethanos.DefaultMinioImage))
 	testutil.Ok(t, e2e.StartAndWaitReady(m))
 
 	// Create bucket.

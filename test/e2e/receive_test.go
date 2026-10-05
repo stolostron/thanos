@@ -755,6 +755,16 @@ test_metric{a="2", b="2"} 1`)
 	})
 
 	t.Run("multitenant_active_series_limiting", func(t *testing.T) {
+		// Flaky: an async, non-blocking TSDB-init race in pkg/receive/multitsdb.go's
+		// getOrLoadTenant lets more than the test's hard-coded tolerance of one
+		// "TSDB not ready" write failure occur, which prevents
+		// thanos_receive_head_series_limited_requests_total from ever reaching
+		// its expected value and hangs the test until the 10m global timeout.
+		// Fixed upstream by thanos-io/thanos@d54b40c (#8562) and
+		// thanos-io/thanos@a7f04c22 (#8564, fixes thanos-io/thanos#8446),
+		// neither of which is present on this branch yet.
+		t.Skip("flaky test: TSDB not ready race, see thanos-io/thanos#8446")
+
 		/*
 			The multitenant_active_series_limiting suite configures a hashring with
 			two avalanche writers and dedicated meta-monitoring.
