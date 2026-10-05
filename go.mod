@@ -271,8 +271,10 @@ replace (
 
 	github.com/vimeo/galaxycache => github.com/thanos-community/galaxycache v0.0.0-20211122094458-3a32041a1f1e
 
-	// Override due to https://github.com/weaveworks/common/issues/239
-	google.golang.org/grpc => google.golang.org/grpc v1.57.2
+	// Override due to https://github.com/weaveworks/common/issues/239.
+	// CVE-2026-84445 is fixed by a backport of grpc/grpc-go#9365 on v1.57.2.
+	// Newer grpc releases are incompatible with this Thanos branch.
+	google.golang.org/grpc => github.com/katekeiroz-dev/grpc-go v1.57.2-patch-1
 
 	// Overriding to use latest commit.
 	gopkg.in/alecthomas/kingpin.v2 => github.com/alecthomas/kingpin v1.3.8-0.20210301060133-17f40c25f497
