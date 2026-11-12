@@ -17,7 +17,7 @@
     "@types/react-dom": "^16.8.0",
     "@types/react-resize-detector": "^4.0.2",
     "@types/sanitize-html": "^1.20.2",
-    "bootstrap": "^4.2.1",
+    "bootstrap": "^5.0.0",
     "css.escape": "^1.5.1",
     "downshift": "^3.2.2",
     "enzyme-to-json": "^3.4.3",
