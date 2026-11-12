@@ -77,7 +77,7 @@
     "babel-eslint": "10.x",
     "enzyme": "^3.10.0",
     "enzyme-adapter-react-16": "^1.15.1",
-    "eslint": "6.x",
+    "eslint": "10.x",
     "eslint-config-prettier": "^6.4.0",
     "eslint-config-react-app": "^5.0.2",
     "eslint-plugin-flowtype": "3.x",
