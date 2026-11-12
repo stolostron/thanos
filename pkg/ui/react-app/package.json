@@ -35,7 +35,7 @@
     "react": "^16.14.0",
     "react-copy-to-clipboard": "^5.0.3",
     "react-dom": "^16.14.0",
-    "react-infinite-scroll-component": "^6.1.0",
+    "react-infinite-scroll-component": "^7.0.0",
     "react-resize-detector": "^4.2.1",
     "react-select": "^4.1.0",
     "react-test-renderer": "^16.14.0",
